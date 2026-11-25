@@ -46,6 +46,25 @@ function pill(st) { return '<span class="pill p-' + st + '">' + esc(ST[st] || st
 function addr(o) { if (!o) return ''; return [o.jk, o.street && (o.street + (o.house ? ', ' + o.house : '')), o.apt && ('кв. ' + o.apt)].filter(Boolean).join(' · '); }
 var toastT;
 function toast(msg, bad) { var t = $('toast'); t.textContent = msg; t.className = 'toast on' + (bad ? ' bad' : ''); clearTimeout(toastT); toastT = setTimeout(function () { t.className = 'toast'; }, 3500); }
+function ask(title, o) {
+  o = o || {};
+  return new Promise(function (resolve) {
+    var bg = document.createElement('div'); bg.className = 'modal-bg';
+    bg.innerHTML = '<div class="modal" role="dialog" aria-modal="true"><h1 style="font-size:19px;margin:0 0 6px">' + esc(title) + '</h1>' + (o.text ? '<p class="s" style="margin:0 0 12px">' + esc(o.text) + '</p>' : '') +
+      (o.input !== undefined ? '<textarea class="inp" id="askIn" rows="3" placeholder="' + esc(o.input) + '"></textarea>' : '') +
+      '<div class="btns" style="justify-content:flex-end"><button class="btn" data-ask="no">' + esc(o.cancel || 'Отмена') + '</button><button class="btn ' + (o.danger ? 'bad' : 'pri') + '" data-ask="yes">' + esc(o.ok || 'OK') + '</button></div></div>';
+    function done(v) { bg.remove(); document.removeEventListener('keydown', key); resolve(v); }
+    function key(e) { if (e.key === 'Escape') done(o.input !== undefined ? null : false); }
+    bg.addEventListener('click', function (e) {
+      var b = e.target.closest('[data-ask]');
+      if (e.target === bg || (b && b.getAttribute('data-ask') === 'no')) return done(o.input !== undefined ? null : false);
+      if (b) { if (o.input === undefined) return done(true); var v = $('askIn').value.trim(); if (!v) return $('askIn').focus(); done(v); }
+    });
+    document.addEventListener('keydown', key);
+    document.body.appendChild(bg);
+    var f = $('askIn') || bg.querySelector('[data-ask=yes]'); if (f) f.focus();
+  });
+}
 function isStaff() { return S.me && (S.me.role === 'manager' || S.me.role === 'admin'); }
 
 // ---------- API ----------
@@ -146,6 +165,8 @@ function viewLogin(step, info) {
   if (step === 'phone') {
     h += '<div class="f"><label>Телефон</label><input id="phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="+7 999 123-45-67" value="' + esc(info.phone || '') + '"></div>' +
       '<button class="btn pri full" data-act="reqCode">Получить код</button><p class="xs">Код из 4 цифр придёт звонком или SMS.</p>';
+    // Демо-страница: вход за любую роль одной кнопкой.
+    if (window.SK_DEMO) h += '<div class="note" style="margin:14px 0 0"><b>Демо.</b> Войдите за любую роль — данные тестовые и живут только в этом браузере.<div class="btns" style="margin-top:10px">' + window.SK_DEMO.roles.map(function (r) { return '<button class="btn sm" data-act="demoLogin" data-phone="' + r[1] + '">' + esc(r[0]) + '</button>'; }).join('') + '</div></div>';
   } else {
     h += '<p class="s">Код отправлен на ' + esc(info.phone) + '</p><div class="f"><input id="code" class="code" inputmode="numeric" maxlength="4" autocomplete="one-time-code" placeholder="····" value="' + esc(info.code || '') + '"></div>';
     if (step === 'profile') {
@@ -161,7 +182,7 @@ function viewLogin(step, info) {
 }
 function reqCode() {
   var phone = $('phone').value.trim();
-  api('POST', '/auth/request-code', { phone: phone }).then(function () { viewLogin('code', { phone: phone }); }).catch(fail);
+  api('POST', '/auth/request-code', { phone: phone }).then(function (r) { viewLogin('code', { phone: phone, code: r && r.demoCode }); if (r && r.demoCode) toast('Демо: код ' + r.demoCode + ' уже подставлен'); }).catch(fail);
 }
 function verify() {
   var b = { phone: S.login.phone, code: $('code').value.trim() };
@@ -557,6 +578,7 @@ function sendFiles(files, opts) {
 
 // ---- голосовые ----
 function startRec() {
+  if (window.SK_DEMO) return toast('В демо запись голоса недоступна: страница не получает микрофон. В приложении работает — послушайте голосовое в переписке');
   if (!navigator.mediaDevices || !window.MediaRecorder) return toast('Браузер не умеет записывать звук', true);
   navigator.mediaDevices.getUserMedia({ audio: true }).then(function (stream) {
     var type = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg'].filter(function (t) { return MediaRecorder.isTypeSupported(t); })[0] || '';
@@ -652,8 +674,10 @@ document.addEventListener('click', function (ev) {
     if (act === 'copy') { (navigator.clipboard ? navigator.clipboard.writeText(m.text) : Promise.reject()).then(function () { toast('Текст скопирован'); }).catch(function () { toast('Не удалось скопировать', true); }); return; }
     if (act === 'edit') { S.edit = m; S.reply = null; S.chatDraft = m.text; renderComposer(); var ta2 = $('msg'); if (ta2) { ta2.focus(); ta2.selectionStart = ta2.value.length; } return; }
     if (act === 'delete') {
-      if (!confirm('Удалить сообщение у всех?')) return;
-      return api('DELETE', '/requests/' + S.req.id + '/messages/' + m.id).then(function () { m = Object.assign({}, m, { deleted: true, text: '', attachment: null, reactions: [], replyTo: null }); replaceMsg(m); }).catch(fail);
+      return ask('Удалить сообщение?', { text: 'Оно исчезнет у всех участников переписки.', ok: 'Удалить', danger: true }).then(function (yes) {
+        if (!yes) return;
+        return api('DELETE', '/requests/' + S.req.id + '/messages/' + m.id).then(function () { m = Object.assign({}, m, { deleted: true, text: '', attachment: null, reactions: [], replyTo: null }); replaceMsg(m); }).catch(fail);
+      });
     }
   }
   var rx = t.closest('[data-react]');
@@ -663,6 +687,7 @@ document.addEventListener('click', function (ev) {
   if (sk) { var vid = sk.getAttribute('data-seek'); if (player.id !== vid) return playVoice(vid); var r = sk.getBoundingClientRect(); if (player.audio && player.audio.duration) player.audio.currentTime = player.audio.duration * (ev.clientX - r.left) / r.width; return; }
   var ph = t.closest('img.ph'); if (ph && ph.src) return lightbox(ph.src);
   var dl = t.closest('[data-dl]');
+  if (dl && window.SK_DEMO) return toast('В демо файлы не скачиваются. В приложении файл сохранится на устройство');
   if (dl) return blobUrl(dl.getAttribute('data-dl')).then(function (u) { var l = document.createElement('a'); l.href = u; l.download = dl.getAttribute('data-name'); document.body.appendChild(l); l.click(); l.remove(); }).catch(fail);
   var gt = t.closest('[data-goto]');
   if (gt) { var el = document.querySelector('[data-mid="' + gt.getAttribute('data-goto') + '"]'); if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); el.classList.add('flash'); setTimeout(function () { el.classList.remove('flash'); }, 1200); } }
@@ -769,6 +794,7 @@ document.addEventListener('click', function (ev) {
   var r = S.req;
   switch (act) {
     case 'reqCode': return reqCode();
+    case 'demoLogin': $('phone').value = el.getAttribute('data-phone'); return api('POST', '/auth/request-code', { phone: el.getAttribute('data-phone') }).then(function (x) { S.login = { step: 'code', phone: el.getAttribute('data-phone') }; viewLogin('code', { phone: S.login.phone, code: x.demoCode }); verify(); }).catch(fail);
     case 'verify': return verify();
     case 'loginBack': return viewLogin('phone', { phone: S.login.phone });
     case 'logout': return logout();
@@ -796,10 +822,12 @@ document.addEventListener('click', function (ev) {
     case 'submitNew': return submitNew();
     case 'status': return api('POST', '/requests/' + r.id + '/status', { to: arg }).then(function () { toast(arg === 'assembly' ? 'Заявка подтверждена и передана на сборку' : arg === 'confirm' ? 'Отправлено заказчику на подтверждение' : 'Готово'); return reloadReq(); }).catch(fail);
     case 'askChange': {
-      var c = prompt('Что изменить в заявке?'); if (!c || !c.trim()) return;
-      return api('POST', '/requests/' + r.id + '/status', { to: 'new', comment: c.trim() }).then(function () { toast('Просьба отправлена менеджеру'); return reloadReq(); }).catch(fail);
+      return ask('Что изменить в заявке?', { input: 'Например: убрать грунтовку, добавить 5 мешков Ротбанда', ok: 'Отправить менеджеру' }).then(function (c) {
+        if (!c) return;
+        return api('POST', '/requests/' + r.id + '/status', { to: 'new', comment: c }).then(function () { toast('Просьба отправлена менеджеру'); return reloadReq(); }).catch(fail);
+      });
     }
-    case 'cancel': if (!confirm('Отменить заявку №' + r.id + '?')) return; return api('POST', '/requests/' + r.id + '/status', { to: 'cancelled' }).then(reloadReq).catch(fail);
+    case 'cancel': return ask('Отменить заявку №' + r.id + '?', { text: 'Отменённую заявку вернуть нельзя.', ok: 'Отменить заявку', cancel: 'Не отменять', danger: true }).then(function (yes) { if (yes) return api('POST', '/requests/' + r.id + '/status', { to: 'cancelled' }).then(function () { toast('Заявка отменена'); return reloadReq(); }).catch(fail); });
     case 'claim': return api('POST', '/companies/' + id + '/claim').then(function () { toast('Клиент теперь ваш'); return S.req && location.hash.indexOf('#/r/') === 0 ? reloadReq() : viewCompanies(); }).catch(fail);
     case 'approve': return api('POST', '/companies/' + id + '/approve').then(function () { toast('Компания подтверждена, заказчику ушло SMS'); viewCompanies(); }).catch(fail);
     case 'pickSku': return api('PATCH', '/requests/' + r.id + '/items/' + el.getAttribute('data-item'), { skuId: Number(el.getAttribute('data-sku')) }).then(reloadReq).catch(fail);

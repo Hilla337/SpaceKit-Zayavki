@@ -8,7 +8,7 @@
 |---|---|
 | Сервер | `server/` — Node.js 22, TypeScript, Fastify 5, PostgreSQL 16. Запуск и API в [`server/README.md`](server/README.md) |
 | Интерфейс | `server/web/` — раздаётся сервером на `/`. Посмотреть без базы: `cd server && npm run dev:memory` |
-| Старое демо | `demo/index.html` — один файл на тестовых данных, к серверу не подключён |
+| Демо | https://claude.ai/artifact/NbgyK2wRRT5gv3oKQAxqK4 — работает в браузере без сервера, вход за любую роль. Файл `demo/index.html`, собирается `node server/web-demo/build-demo.mjs` |
 | Контекст для Claude Code | [`CLAUDE.md`](CLAUDE.md) — бизнес-правила, что сделано и что дальше |
 | Демо (страница) | https://claude.ai/artifact/1esaMZLQxjyCfTxGA7rhUs (только у владельца аккаунта Claude) |
 | Спецификация процесса | https://claude.ai/artifact/TbiJszgLDJnN1Z3cH5ejCT (частично устарела) |
