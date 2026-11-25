@@ -6,6 +6,7 @@ import { registerChatRoutes } from './routes-chat.js';
 import { registerCompanyRoutes } from './routes-companies.js';
 import { registerRequestRoutes } from './routes-requests.js';
 import { registerShipRoutes } from './routes-ship.js';
+import type { MsGateway } from './moysklad.js';
 import type { CodeSender } from './sender.js';
 import type { Actor, Role } from './types.js';
 
@@ -23,6 +24,8 @@ export interface Deps {
   logger?: boolean;
   /** Сколько прокси-серверов стоит перед приложением (балансировщик и т.п.). 0, если запросы идут напрямую. */
   trustProxy?: number;
+  /** Запись в МойСклад (заказ при подтверждении, отгрузка). Если не задано, приложение работает без МойСклад. */
+  ms?: MsGateway;
 }
 
 declare module 'fastify' {

@@ -4,6 +4,8 @@ import { canViewRequest } from './access.js';
 import type { Deps } from './app.js';
 import { companyInfo, loadRequest, requestInfo } from './routes-requests.js';
 import { parseId } from './routes-companies.js';
+import { MsError } from './moysklad.js';
+import { MsPrecondition, pushDemand } from './ms-orders.js';
 import { addHistory, customersOfCompany, notifyCustomers, notifyUsers, staffOfCompany } from './services.js';
 import { checkTransition } from './statuses.js';
 
@@ -57,15 +59,35 @@ export function registerShipRoutes(app: FastifyInstance, deps: Deps): void {
           return { ok: false, status: check.code === 'forbidden' ? 403 : 409, body: { error: check.code, message: check.reason } };
         }
 
-        // Номер из id отгрузки: сначала вставляем со временным, затем переименовываем.
-        const ins = await q.query<{ id: number }>('INSERT INTO shipments (request_id, number, created_by) VALUES ($1, $2, $3) RETURNING id', [
-          id,
-          `tmp-${randomUUID()}`,
-          u.id,
-        ]);
-        const shipmentId = ins.rows[0]!.id;
-        const number = `ОТ-${String(shipmentId).padStart(4, '0')}`;
-        await q.query('UPDATE shipments SET number = $2 WHERE id = $1', [shipmentId, number]);
+        let shipmentId: number;
+        let number: string;
+        if (deps.ms) {
+          // Отгрузка в МойСклад на основании заказа; номер берём оттуда. Не получилось — в приложении ничего не меняется.
+          let demand: { id: string; name: string };
+          try {
+            demand = await pushDemand(q, deps.ms, id, chosen);
+          } catch (err) {
+            if (err instanceof MsPrecondition) return { ok: false, status: 409, body: { error: err.code, message: err.message } };
+            if (err instanceof MsError) return { ok: false, status: 502, body: { error: 'moysklad_failed', message: err.message } };
+            throw err;
+          }
+          number = demand.name;
+          const ins = await q.query<{ id: number }>(
+            'INSERT INTO shipments (request_id, number, ms_shipment_id, created_by) VALUES ($1, $2, $3, $4) RETURNING id',
+            [id, number, demand.id, u.id],
+          );
+          shipmentId = ins.rows[0]!.id;
+        } else {
+          // Без МойСклад номер наш, из id отгрузки: сначала вставляем со временным, затем переименовываем.
+          const ins = await q.query<{ id: number }>('INSERT INTO shipments (request_id, number, created_by) VALUES ($1, $2, $3) RETURNING id', [
+            id,
+            `tmp-${randomUUID()}`,
+            u.id,
+          ]);
+          shipmentId = ins.rows[0]!.id;
+          number = `ОТ-${String(shipmentId).padStart(4, '0')}`;
+          await q.query('UPDATE shipments SET number = $2 WHERE id = $1', [shipmentId, number]);
+        }
 
         for (const itemId of chosen) {
           await q.query('INSERT INTO shipment_items (shipment_id, item_id) VALUES ($1, $2)', [shipmentId, itemId]);

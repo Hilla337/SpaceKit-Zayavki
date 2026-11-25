@@ -1,6 +1,7 @@
 import { buildApp } from './app.js';
 import { config } from './config.js';
 import { createPgDb } from './db.js';
+import { MoySklad, MsWriter } from './moysklad.js';
 import { ConsoleSender } from './sender.js';
 import { ConsoleSmsSender, startSmsWorker } from './sms.js';
 
@@ -13,7 +14,11 @@ if (config.isProduction) {
 }
 
 const db = createPgDb(config.databaseUrl);
-const app = buildApp({ db, sender: new ConsoleSender(), pepper: config.authPepper, logger: true, trustProxy: config.trustProxyHops });
+const ms = config.msWrite
+  ? new MsWriter(new MoySklad(process.env.MS_TOKEN ?? ''), { organizationId: config.msOrganizationId, storeId: config.msStoreId, orderState: config.msOrderState })
+  : undefined;
+const app = buildApp({ db, sender: new ConsoleSender(), pepper: config.authPepper, logger: true, trustProxy: config.trustProxyHops, ms });
+app.log.info(ms ? 'МойСклад: запись включена' : 'МойСклад: запись выключена (MS_WRITE не равен 1)');
 
 if (config.smsProvider !== 'console') {
   throw new Error(`Неизвестный SMS_PROVIDER «${config.smsProvider}». Провайдер SMS ещё не подключён.`);

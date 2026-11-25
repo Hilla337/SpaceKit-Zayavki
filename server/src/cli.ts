@@ -13,7 +13,9 @@ const usage = `Команды:
   clients:suggest                          показать приблизительные совпадения для проверки (ничего не меняет)
   ms:check                                 проверить токен МойСклад (MS_TOKEN в окружении), только чтение
   ms:counterparties                        показать контрагентов МойСклад и сравнить с подсказками по менеджерам (ничего не меняет)
-  ms:sync-catalog                          загрузить товары и цены из МойСклад в каталог (МойСклад только читается)`;
+  ms:sync-catalog                          загрузить товары и цены из МойСклад в каталог (МойСклад только читается)
+  ms:link-companies                        связать компании с контрагентами МойСклад по точному названию (только однозначные)
+  ms:link-company <id компании> <id контрагента>   связать вручную`;
 
 async function main(): Promise<void> {
   const [cmd, ...args] = process.argv.slice(2);
@@ -79,6 +81,30 @@ async function main(): Promise<void> {
       const products = await ms.all<MsProduct>('/entity/product');
       const r = await db.tx((q) => syncCatalog(q, products));
       console.log(`Каталог обновлён: ${r.upserted} позиций, пропущено архивных: ${r.skipped}`);
+    } else if (cmd === 'ms:link-companies') {
+      const ms = new MoySklad(process.env.MS_TOKEN ?? '');
+      const all = (await ms.all<MsCounterparty>('/entity/counterparty')).filter((c) => !c.archived);
+      const byNorm = new Map<string, MsCounterparty[]>();
+      for (const c of all) byNorm.set(normalizeName(c.name), [...(byNorm.get(normalizeName(c.name)) ?? []), c]);
+      const free = await db.query<{ id: number; name: string }>('SELECT id, name FROM companies WHERE ms_counterparty_id IS NULL ORDER BY id');
+      let linked = 0;
+      for (const c of free.rows) {
+        const hits = byNorm.get(normalizeName(c.name)) ?? [];
+        if (hits.length !== 1) {
+          if (hits.length > 1) console.log(`#${c.id} «${c.name}»: несколько контрагентов (${hits.map((h) => h.name).join(' | ')}), свяжи вручную`);
+          continue;
+        }
+        const r = await db.query('UPDATE companies SET ms_counterparty_id = $2 WHERE id = $1 AND NOT EXISTS (SELECT 1 FROM companies WHERE ms_counterparty_id = $2) RETURNING id', [c.id, hits[0]!.id]);
+        if (r.rows.length) { linked++; console.log(`#${c.id} «${c.name}» → «${hits[0]!.name}»`); }
+      }
+      console.log(`Связано компаний: ${linked} из ${free.rows.length} без контрагента`);
+    } else if (cmd === 'ms:link-company') {
+      const [companyId, msId] = args;
+      if (!companyId || !msId) throw new Error(usage);
+      const cp = await new MoySklad(process.env.MS_TOKEN ?? '').get<{ id: string; name: string }>(`/entity/counterparty/${encodeURIComponent(msId)}`);
+      const r = await db.query('UPDATE companies SET ms_counterparty_id = $2 WHERE id = $1 RETURNING id', [Number(companyId), cp.id]);
+      if (!r.rows.length) throw new Error(`Компания #${companyId} не найдена`);
+      console.log(`Компания #${companyId} связана с «${cp.name}»`);
     } else {
       throw new Error(usage);
     }

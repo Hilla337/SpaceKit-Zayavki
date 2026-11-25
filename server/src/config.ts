@@ -18,11 +18,15 @@ export const config = {
     if (isProduction) return required('AUTH_PEPPER');
     return process.env.AUTH_PEPPER ?? 'dev-only-pepper';
   },
-  /** Как отправлять коды: пока доступен только console (печать в лог), только вне production. */
   /** Число прокси перед сервером. Нужно, чтобы лимиты по IP считались по реальному адресу клиента, а не балансировщика. */
   trustProxyHops: Number(process.env.TRUST_PROXY_HOPS ?? 1),
   /** Ссылка на приложение, её добавляем в конец SMS (необязательно). */
   appUrl: process.env.APP_URL,
   smsProvider: process.env.SMS_PROVIDER ?? 'console',
   codeProvider: process.env.CODE_PROVIDER ?? 'console',
+  /** Запись в МойСклад включается явно: MS_WRITE=1. Токен MS_TOKEN, юрлицо и склад по ID. */
+  msWrite: process.env.MS_WRITE === '1',
+  msOrganizationId: process.env.MS_ORGANIZATION_ID ?? '',
+  msStoreId: process.env.MS_STORE_ID ?? '',
+  msOrderState: process.env.MS_ORDER_STATE ?? 'Готов к сборке',
 };

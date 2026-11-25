@@ -3,6 +3,8 @@ import { canViewRequest } from './access.js';
 import type { AuthedUser, Deps } from './app.js';
 import type { Queryable } from './db.js';
 import { parseId } from './routes-companies.js';
+import { MsError } from './moysklad.js';
+import { MsPrecondition, pushOrder } from './ms-orders.js';
 import { addHistory, customersOfCompany, notifyCustomers, notifyUsers, staffOfCompany } from './services.js';
 import { checkTransition } from './statuses.js';
 import type { AccountStatus, CompanyInfo, RequestInfo, RequestStatus } from './types.js';
@@ -40,6 +42,8 @@ export interface RequestRow {
   object_id: number | null;
   change_comment: string | null;
   ms_order_id: string | null;
+  ms_order_name: string | null;
+  ms_counterparty_id: string | null;
   created_at: Date;
   updated_at: Date;
   company_name: string;
@@ -82,8 +86,8 @@ function presentItem(i: ItemRow, staff: boolean, prices: boolean) {
 
 export async function loadRequest(q: Queryable, id: number, lock = false): Promise<RequestRow | undefined> {
   const r = await q.query<RequestRow>(
-    `SELECT r.id, r.company_id, r.status, r.created_by, r.object_id, r.change_comment, r.ms_order_id, r.created_at, r.updated_at,
-            c.name AS company_name, c.status AS company_status, c.manager_id, c.show_prices_early
+    `SELECT r.id, r.company_id, r.status, r.created_by, r.object_id, r.change_comment, r.ms_order_id, r.ms_order_name, r.created_at, r.updated_at,
+            c.name AS company_name, c.ms_counterparty_id, c.status AS company_status, c.manager_id, c.show_prices_early
      FROM requests r JOIN companies c ON c.id = r.company_id
      WHERE r.id = $1 ${lock ? 'FOR UPDATE OF r' : ''}`,
     [id],
@@ -313,6 +317,7 @@ export function registerRequestRoutes(app: FastifyInstance, deps: Deps): void {
       companyName: r.company_name,
       managerId: r.manager_id,
       changeComment: r.change_comment,
+      ...(staff ? { msOrder: r.ms_order_name } : {}),
       createdAt: r.created_at,
       updatedAt: r.updated_at,
       object: obj
@@ -391,6 +396,19 @@ export function registerRequestRoutes(app: FastifyInstance, deps: Deps): void {
             [id],
           );
           if (bad.rows.length > 0) return { ok: false, status: 409, body: { error: 'unpriced_items', itemIds: bad.rows.map((x) => x.id) } };
+          // Заказ в МойСклад создаётся на контрагента компании, поэтому без него на подтверждение не отправляем.
+          if (deps.ms && !r.ms_counterparty_id) return { ok: false, status: 409, body: { error: 'no_counterparty', message: 'У компании не указан контрагент в МойСклад' } };
+        }
+
+        // Подтверждение создаёт заказ покупателя в МойСклад. Не получилось — статус не меняется.
+        if (to === 'assembly' && deps.ms) {
+          try {
+            await pushOrder(q, deps.ms, id);
+          } catch (err) {
+            if (err instanceof MsPrecondition) return { ok: false, status: 409, body: { error: err.code, message: err.message } };
+            if (err instanceof MsError) return { ok: false, status: 502, body: { error: 'moysklad_failed', message: err.message } };
+            throw err;
+          }
         }
 
         const note = comment?.trim() || null;

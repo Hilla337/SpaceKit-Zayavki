@@ -17,7 +17,7 @@
 ```bash
 cd server
 npm install
-npm test            # 55 тестов на PostgreSQL в памяти (PGlite)
+npm test            # 62 теста на PostgreSQL в памяти (PGlite)
 npm run typecheck
 ```
 

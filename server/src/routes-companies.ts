@@ -12,6 +12,7 @@ interface CompanyRow {
   manager_id: number | null;
   manager_name: string | null;
   show_prices_early: boolean;
+  ms_counterparty_id: string | null;
 }
 
 export function parseId(s: string): number | null {
@@ -23,7 +24,7 @@ const toInfo = (c: CompanyRow): CompanyInfo => ({ id: c.id, status: c.status, ma
 
 async function loadCompany(q: Queryable, id: number, lock = false): Promise<CompanyRow | undefined> {
   const r = await q.query<CompanyRow>(
-    `SELECT c.id, c.name, c.status, c.manager_id, m.name AS manager_name, c.show_prices_early
+    `SELECT c.id, c.name, c.status, c.manager_id, m.name AS manager_name, c.show_prices_early, c.ms_counterparty_id
      FROM companies c LEFT JOIN users m ON m.id = c.manager_id
      WHERE c.id = $1 ${lock ? 'FOR UPDATE OF c' : ''}`,
     [id],
@@ -38,6 +39,7 @@ const present = (c: CompanyRow) => ({
   managerId: c.manager_id,
   managerName: c.manager_name,
   showPricesEarly: c.show_prices_early,
+  msCounterpartyId: c.ms_counterparty_id,
 });
 
 export function registerCompanyRoutes(app: FastifyInstance, deps: Deps, _clock: () => Date): void {
@@ -49,7 +51,7 @@ export function registerCompanyRoutes(app: FastifyInstance, deps: Deps, _clock: 
     if (u.status !== 'approved' || (u.role !== 'manager' && u.role !== 'admin')) return reply.code(403).send({ error: 'forbidden' });
 
     const r = await db.query<CompanyRow>(
-      `SELECT c.id, c.name, c.status, c.manager_id, m.name AS manager_name, c.show_prices_early
+      `SELECT c.id, c.name, c.status, c.manager_id, m.name AS manager_name, c.show_prices_early, c.ms_counterparty_id
        FROM companies c LEFT JOIN users m ON m.id = c.manager_id
        WHERE $1 = 'admin' OR c.manager_id = $2 OR c.manager_id IS NULL
        ORDER BY c.created_at DESC LIMIT 500`,
@@ -104,6 +106,38 @@ export function registerCompanyRoutes(app: FastifyInstance, deps: Deps, _clock: 
     if (result === 'forbidden') return reply.code(403).send({ error: 'forbidden' });
     return { ok: true };
   });
+
+  // Связать компанию с контрагентом в МойСклад (на него создаются заказы и отгрузки). Менеджер клиента или админ.
+  app.post<{ Params: { id: string }; Body: { msId: string } }>(
+    '/companies/:id/ms-counterparty',
+    {
+      preHandler: app.authenticate,
+      schema: { body: { type: 'object', required: ['msId'], additionalProperties: false, properties: { msId: { type: 'string', pattern: '^[0-9a-f-]{36}$' } } } },
+    },
+    async (req, reply) => {
+      const u = req.user!;
+      const id = parseId(req.params.id);
+      if (!id) return reply.code(404).send({ error: 'not_found' });
+      if (!deps.ms) return reply.code(503).send({ error: 'moysklad_disabled' });
+
+      const c = await loadCompany(db, id);
+      if (!c || !canViewCompany(u, toInfo(c))) return reply.code(404).send({ error: 'not_found' });
+      if (!canApproveCompany(u, toInfo(c))) return reply.code(403).send({ error: 'forbidden' });
+
+      let cp: { id: string; name: string } | null;
+      try {
+        cp = await deps.ms.getCounterparty(req.body.msId);
+      } catch (err) {
+        return reply.code(502).send({ error: 'moysklad_failed', message: err instanceof Error ? err.message : String(err) });
+      }
+      if (!cp) return reply.code(422).send({ error: 'counterparty_not_found' });
+
+      const taken = await db.query<{ id: number }>('SELECT id FROM companies WHERE ms_counterparty_id = $1 AND id <> $2', [cp.id, id]);
+      if (taken.rows[0]) return reply.code(409).send({ error: 'counterparty_taken' });
+      await db.query('UPDATE companies SET ms_counterparty_id = $2 WHERE id = $1', [id, cp.id]);
+      return { ok: true, counterparty: cp };
+    },
+  );
 
   // Переназначение клиента другому менеджеру. Только админ.
   app.post<{ Params: { id: string }; Body: { managerId: number } }>(
