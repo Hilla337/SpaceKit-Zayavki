@@ -9,7 +9,7 @@ export class MsPrecondition extends Error {
   }
 }
 
-/** Ставка НДС для клиентов, которые берут счёт с НДС. */
+/** Ставка НДС в счёте покупателю для клиентов, которые берут счёт с НДС. Заказ и отгрузка идут без изменения НДС: у Spacekit НДС только в счёте. */
 export const VAT_INVOICE_RATE = 5;
 
 interface OrderCtx {
@@ -77,7 +77,7 @@ export async function pushOrder(q: Queryable, ms: MsGateway, requestId: number):
     projectId,
     description: `Заявка №${requestId} из приложения заявок SpaceKit${ctx.vat_invoice ? ', счёт с НДС' : ''}`,
     positions,
-    vatRate: ctx.vat_invoice ? VAT_INVOICE_RATE : null,
+    vatRate: null, // НДС только в счёте; пометка «счёт с НДС» в описании подсказывает менеджеру
   });
   await q.query('UPDATE requests SET ms_order_id = $2, ms_order_name = $3 WHERE id = $1', [requestId, order.id, order.name]);
   return order;
@@ -90,5 +90,5 @@ export async function pushDemand(q: Queryable, ms: MsGateway, requestId: number,
   const positions = await loadPositions(q, requestId, itemIds);
   // Каждую позицию можно отгрузить один раз, поэтому заявка + набор позиций однозначно задают отгрузку.
   const digest = createHash('sha256').update([...itemIds].sort((a, b) => a - b).join(',')).digest('hex').slice(0, 16);
-  return ms.createDemand({ key: `zayavki-ship-${requestId}-${digest}`, orderId: ctx.ms_order_id!, counterpartyId: ctx.ms_counterparty_id!, projectId: ctx.ms_project_id, positions, vatRate: ctx.vat_invoice ? VAT_INVOICE_RATE : null });
+  return ms.createDemand({ key: `zayavki-ship-${requestId}-${digest}`, orderId: ctx.ms_order_id!, counterpartyId: ctx.ms_counterparty_id!, projectId: ctx.ms_project_id, positions, vatRate: null });
 }

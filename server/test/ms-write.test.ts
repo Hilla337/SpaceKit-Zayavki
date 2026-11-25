@@ -247,7 +247,7 @@ test('отгрузка одной кнопкой создаёт отгрузку
   assert.deepEqual(card.shipments.map((s: { number: string }) => s.number), [part.json().shipment, rest.json().shipment]);
 });
 
-test('счёт с НДС: флаг у компании, заявка его наследует, менеджер может поменять до заказа; в МойСклад уходит 5%', async () => {
+test('счёт с НДС: флаг у компании, заявка его наследует, менеджер может поменять до заказа; заказ и отгрузка без НДС', async () => {
   assert.equal((await call(ann, 'PATCH', `/companies/${company}`, { vatInvoice: true })).statusCode, 403, 'заказчик не может');
   assert.equal((await call(tanya, 'PATCH', `/companies/${company}`, { vatInvoice: true })).statusCode, 404, 'чужой менеджер не видит');
   assert.equal((await call(phil, 'PATCH', `/companies/${company}`, { vatInvoice: true })).statusCode, 200);
@@ -263,11 +263,12 @@ test('счёт с НДС: флаг у компании, заявка его на
   assert.equal((await call(phil, 'POST', `/requests/${id}/status`, { to: 'confirm' })).statusCode, 200);
   assert.equal((await call(ann, 'POST', `/requests/${id}/status`, { to: 'assembly' })).statusCode, 200);
   assert.equal(ms.orders.at(-1)!.key, `zayavki-req-${id}`);
-  assert.equal(ms.orders.at(-1)!.vatRate, 5);
+  assert.equal(ms.orders.at(-1)!.vatRate, null, 'НДС только в счёте, заказ без изменения НДС');
+  assert.match((ms.orders.at(-1) as unknown as { description: string }).description, /счёт с НДС/, 'пометка для менеджера');
   assert.equal((await call(phil, 'PATCH', `/requests/${id}`, { vatInvoice: false })).statusCode, 409, 'после заказа в МойСклад ставку меняют там');
 
   assert.equal((await call(picker, 'POST', `/requests/${id}/ship`)).statusCode, 200);
-  assert.equal(ms.demands.at(-1)!.vatRate, 5, 'отгрузка с той же ставкой');
+  assert.equal(ms.demands.at(-1)!.vatRate, null, 'отгрузка без изменения НДС');
 
   // Компания без флага: заказ без НДС, как раньше.
   assert.equal((await call(phil, 'PATCH', `/companies/${company}`, { vatInvoice: false })).statusCode, 200);
