@@ -174,6 +174,13 @@ export function registerCompanyRoutes(app: FastifyInstance, deps: Deps, _clock: 
     },
   );
 
+  // Менеджеры, на которых можно переназначить клиента. Только админ.
+  app.get('/staff/managers', { preHandler: app.authenticate }, async (req, reply) => {
+    if (!canReassignCompany(req.user!)) return reply.code(403).send({ error: 'forbidden' });
+    const r = await db.query<{ id: number; name: string }>(`SELECT id, name FROM users WHERE role = 'manager' AND status = 'approved' ORDER BY name`);
+    return r.rows;
+  });
+
   // Переназначение клиента другому менеджеру. Только админ.
   app.post<{ Params: { id: string }; Body: { managerId: number } }>(
     '/companies/:id/reassign',

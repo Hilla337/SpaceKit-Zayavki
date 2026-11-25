@@ -71,9 +71,16 @@ function fail(e) { toast(e.message || String(e), true); }
 // ---------- навигация ----------
 function go(hash) { if (location.hash === hash) route(); else location.hash = hash; }
 window.addEventListener('hashchange', route);
+new MutationObserver(function () {
+  var f = $('app').firstElementChild;
+  if (!S.anim || !f || f.classList.contains('loading')) return;
+  S.anim = false; f.classList.add('view');
+  window.scrollTo({ top: 0, behavior: 'instant' in window ? 'instant' : 'auto' });
+}).observe(document.getElementById('app'), { childList: true });
 
 function route() {
   stopChat();
+  S.anim = true;
   if (!S.token) return viewLogin();
   if (!S.me) return boot();
   renderTop();
@@ -95,7 +102,7 @@ function logout() { api('POST', '/auth/logout').catch(function () {}).then(funct
 
 // ---------- верхняя панель ----------
 function renderTop() {
-  var me = S.me, h = '<div class="logo" data-go="#/">SpaceKit <span>· Заявки</span></div>';
+  var me = S.me, h = me ? '<div class="logo" data-go="#/"><img src="/logo.png" alt="spacekit"></div>' : '';
   if (me && me.status === 'approved') {
     var cur = location.hash || '#/';
     var nav = [['#/', 'Заявки']];
@@ -106,10 +113,11 @@ function renderTop() {
   if (me) {
     var unread = S.notes.filter(function (n) { return !n.read; }).length;
     h += '<div class="who"><span class="nm">' + esc(me.name) + ' · ' + esc(ROLE[me.role] || me.role) + '</span>' +
-      '<div class="bw"><button data-act="notes">🔔' + (unread ? '<span class="n2">' + unread + '</span>' : '') + '</button>' + (S.notesOpen ? notesHtml() : '') + '</div>' +
-      '<button data-go="#/settings" title="Настройки">⚙</button></div>';
+      '<div class="bw"><button class="ib" data-act="notes" title="Уведомления">🔔' + (unread ? '<span class="n2">' + unread + '</span>' : '') + '</button>' + (S.notesOpen ? notesHtml() : '') + '</div>' +
+      '<button class="ib" data-go="#/settings" title="Настройки">⚙</button></div>';
   }
   $('top').innerHTML = h;
+  document.querySelector('.top').style.display = me ? '' : 'none';
 }
 function notesHtml() {
   var l = S.notes.slice(0, 50);
@@ -134,7 +142,7 @@ function pollNotes() {
 function viewLogin(step, info) {
   renderTop();
   step = step || 'phone'; info = info || {};
-  var h = '<div class="wrap"><h1>Вход</h1><div class="card">';
+  var h = '<div class="wrap"><img class="login-logo" src="/logo.png" alt="spacekit — комплектация пространств"><div class="card"><h1 style="margin-top:0">Вход</h1>';
   if (step === 'phone') {
     h += '<div class="f"><label>Телефон</label><input id="phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="+7 999 123-45-67" value="' + esc(info.phone || '') + '"></div>' +
       '<button class="btn pri full" data-act="reqCode">Получить код</button><p class="xs">Код из 4 цифр придёт звонком или SMS.</p>';
@@ -180,7 +188,7 @@ function viewSettings() {
 // ---------- список заявок ----------
 function viewList() {
   var role = S.me.role, tab = S.listTab || (role === 'customer' ? 'all' : role === 'picker' ? 'all' : 'active');
-  $('app').innerHTML = '<div class="wrap wide"><div class="empty">Загрузка…</div></div>';
+  $('app').innerHTML = '<div class="wrap wide loading"><div class="skel"></div><div class="skel"></div><div class="skel"></div></div>';
   api('GET', '/requests').then(function (rows) {
     var groups = role === 'customer' || role === 'picker'
       ? [['all', 'Все', null]]
@@ -287,7 +295,7 @@ function submitNew() {
 
 // ---------- карточка заявки ----------
 function viewRequest(id) {
-  api('GET', '/requests/' + id).then(function (r) { S.req = r; S.sel = {}; renderRequest(); loadChat(true); }).catch(function (e) { $('app').innerHTML = '<div class="wrap"><div class="empty">' + esc(e.message) + '</div></div>'; });
+  api('GET', '/requests/' + id).then(function (r) { S.req = r; S.sel = {}; S.chat = null; S.chatDraft = ''; if (S.rec) stopRec(false); renderRequest(); loadChat(true); }).catch(function (e) { $('app').innerHTML = '<div class="wrap"><div class="empty">' + esc(e.message) + '</div></div>'; });
 }
 function reloadReq() { return api('GET', '/requests/' + S.req.id).then(function (r) { S.req = r; renderRequest(); }); }
 
@@ -348,10 +356,12 @@ function renderRequest() {
   if (r.object) h += '<h2>Объект</h2><div class="card">' + OBJ_F.filter(function (f) { return r.object[f[0]]; }).map(function (f) { return '<div class="row s"><span style="min-width:170px">' + f[1] + '</span><span class="sp" style="color:var(--ink)">' + esc(r.object[f[0]]) + '</span></div>'; }).join('') + '</div>';
   if (r.history && r.history.length) h += '<h2>История</h2><div class="hist">' + r.history.map(function (x) { return '<div><b>' + when(x.at) + '</b><span>' + esc(x.text) + '</span></div>'; }).join('') + '</div>';
   h += '</div><div>';
-  if (role !== 'picker') h += '<h2>Переписка</h2><div class="card"><div class="chat" id="chat"></div><div class="row"><textarea id="msg" class="inp sp" rows="1" placeholder="Сообщение…"></textarea><button class="btn pri" data-act="send">→</button></div></div>';
+  if (role !== 'picker') h += '<h2>Переписка</h2><div class="card chatbox" id="chatbox"><div class="chat" id="chat"></div><div class="composer" id="composer"></div></div>';
   h += '</div></div></div>';
+  var draftText = $('msg') ? $('msg').value : (S.chatDraft || '');
   $('app').innerHTML = h;
-  if (S.chat) renderChat();
+  S.chatDraft = draftText;
+  if (S.chat && $('chat')) { S.chatSig = null; renderComposer(); renderChat(); }
 }
 function btn(kind, label, act, arg) { return '<button class="btn ' + kind + '" data-act="' + act + '"' + (arg ? ' data-arg="' + arg + '"' : '') + '>' + label + '</button>'; }
 
@@ -378,32 +388,345 @@ function catalogSearch(input) {
   }, 250);
 }
 
-// ---------- переписка ----------
+// ---------- переписка в стиле мессенджера ----------
+var REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏', '🔥', '👌'];
+var EMOJI = '😀 😁 😂 🤣 😊 😍 😘 😎 🤔 😅 😉 🙂 🙃 😴 😢 😭 😡 🤯 😱 🥳 🤝 👍 👎 👌 ✌️ 🙏 👏 💪 🤞 👋 ✅ ❌ ❗ ❓ ⚠️ 🔥 ❤️ 💯 ⭐ 🎉 📦 🚚 🏗️ 🧱 🪵 🔨 🪛 🔧 📏 🧰 🪣 🖌️ 🏠 🏢 🚪 🪟 🛁 🚽 💡 🔌 📷 📎 📄 🕐 📅 💰 🧾'.split(' ');
+var MAX_FILE = 25 * 1024 * 1024;
+S.blobs = {};
+// Одно постоянное поле выбора файлов: если пересоздавать его вместе с полем ввода, выбранный файл может потеряться.
+(function () { var f = document.createElement('input'); f.type = 'file'; f.id = 'fileIn'; f.multiple = true; f.hidden = true; document.body.appendChild(f); })();
+
+function chatEnabled() { return S.me && S.me.role !== 'picker' && S.req && $('chat'); }
 function loadChat(first) {
   if (S.me.role === 'picker' || !S.req) return;
   var id = S.req.id;
-  if (first) S.chat = [];
-  var after = S.chat.length ? S.chat[S.chat.length - 1].id : 0;
-  api('GET', '/requests/' + id + '/messages?after=' + after).then(function (l) {
+  if (first) { S.chat = []; S.chatSig = null; S.reply = null; S.edit = null; S.emojiOpen = false; S.lastSeen = 0; renderComposer(); }
+  api('GET', '/requests/' + id + '/messages').then(function (l) {
     if (!S.req || S.req.id !== id) return;
-    if (l.length || first) { S.chat = S.chat.concat(l); renderChat(); }
-  }).catch(function () {}).then(function () { stopChat(); S.chatTimer = setTimeout(function () { loadChat(false); }, 8000); });
+    S.chat = l; renderChat();
+  }).catch(function () {}).then(function () { stopChat(); if (S.req && S.req.id === id) S.chatTimer = setTimeout(function () { loadChat(false); }, 4000); });
 }
 function stopChat() { clearTimeout(S.chatTimer); }
+
+function dayLabel(d) {
+  var x = new Date(d), now = new Date(), y = new Date(now); y.setDate(now.getDate() - 1);
+  if (x.toDateString() === now.toDateString()) return 'Сегодня';
+  if (x.toDateString() === y.toDateString()) return 'Вчера';
+  return x.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
+}
+function hhmm(d) { return new Date(d).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }); }
+function fsize(n) { return n < 1024 ? n + ' Б' : n < 1048576 ? (n / 1024).toFixed(0) + ' КБ' : (n / 1048576).toFixed(1) + ' МБ'; }
+function linkify(t) { return esc(t).replace(/https?:\/\/[^\s<]+/g, function (u) { return '<a href="' + u + '" target="_blank" rel="noopener">' + u + '</a>'; }); }
+function kindLabel(k) { return k === 'photo' ? '📷 Фото' : k === 'video' ? '🎬 Видео' : k === 'voice' ? '🎤 Голосовое сообщение' : k === 'file' ? '📎 Файл' : ''; }
+function snippet(m) { return m.deleted ? 'Сообщение удалено' : (m.text || kindLabel(m.kind || (m.attachment && m.attachment.kind))); }
+function durFmt(ms) { var s = Math.round((ms || 0) / 1000); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); }
+function bars(id) { var h = '', x = id * 9301 + 49297; for (var i = 0; i < 28; i++) { x = (x * 9301 + 49297) % 233280; h += '<i style="height:' + (20 + (x / 233280) * 80).toFixed(0) + '%"></i>'; } return h; }
+
+function msgHtml(m, prev, isNew) {
+  var cont = prev && !prev.deleted && prev.authorId === m.authorId && (new Date(m.createdAt) - new Date(prev.createdAt)) < 180000 && dayLabel(prev.createdAt) === dayLabel(m.createdAt);
+  var cls = 'msg' + (m.mine ? ' me' : '') + (cont ? ' cont' : '') + (m.deleted ? ' del' : '') + (isNew ? ' new' : '');
+  var h = '<div class="' + cls + '" data-mid="' + m.id + '">';
+  if (!m.mine && !cont) h += '<div class="w">' + esc(m.authorName) + '</div>';
+  if (m.deleted) return h + '🗑 Сообщение удалено<span class="meta">' + hhmm(m.createdAt) + '</span></div>';
+  if (m.replyTo) h += '<div class="rp" data-goto="' + m.replyTo.id + '"><b>' + esc(m.replyTo.authorName || '') + '</b><span>' + esc(m.replyTo.deleted ? 'Сообщение удалено' : (m.replyTo.text || kindLabel(m.replyTo.kind))) + '</span></div>';
+  var a = m.attachment;
+  if (a) {
+    if (a.kind === 'photo') h += '<img class="ph" data-att="' + a.id + '" alt="фото">';
+    else if (a.kind === 'video') h += '<video class="vd" data-att="' + a.id + '" controls playsinline preload="metadata"></video>';
+    else if (a.kind === 'voice') h += '<div class="voice" data-voice="' + a.id + '"><button class="pl" data-play="' + a.id + '">▶</button><div class="bars" data-seek="' + a.id + '">' + bars(a.id) + '</div><span class="dur" id="vd' + a.id + '">' + durFmt(a.durationMs) + '</span></div>';
+    else h += '<div class="file" data-dl="' + a.id + '" data-name="' + esc(a.name) + '"><div class="fi">📄</div><div><div class="fn">' + esc(a.name) + '</div><div class="xs">' + fsize(a.size) + ' · скачать</div></div></div>';
+  }
+  if (m.text) h += '<span class="t">' + linkify(m.text) + '</span>';
+  h += '<span class="meta">' + (m.editedAt ? 'изм. ' : '') + hhmm(m.createdAt) + (m.mine ? (m.read ? '<span class="rd" title="Прочитано">✓✓</span>' : '<span class="ur" title="Отправлено">✓</span>') : '') + '</span>';
+  if (m.reactions && m.reactions.length) h += '<div class="rx">' + m.reactions.map(function (r) { return '<button class="' + (r.mine ? 'mine' : '') + '" data-react="' + m.id + '" data-emoji="' + r.emoji + '">' + r.emoji + (r.count > 1 ? ' ' + r.count : '') + '</button>'; }).join('') + '</div>';
+  return h + '</div>';
+}
+
 function renderChat() {
   var box = $('chat'); if (!box) return;
-  box.innerHTML = S.chat.length ? S.chat.map(function (m) { return '<div class="msg' + (m.mine ? ' me' : '') + '"><div class="w">' + esc(m.authorName) + ' · ' + when(m.createdAt) + '</div>' + esc(m.text) + '</div>'; }).join('') : '<div class="xs">Сообщений пока нет</div>';
-  box.scrollTop = box.scrollHeight;
+  var sig = JSON.stringify(S.chat);
+  if (sig === S.chatSig) return;
+  S.chatSig = sig;
+  var nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 80 || !S.lastSeen;
+  var lastDay = '', h = '', prev = null, seen = S.lastSeen || 0;
+  S.chat.forEach(function (m) {
+    var d = dayLabel(m.createdAt);
+    if (d !== lastDay) { h += '<div class="day">' + d + '</div>'; lastDay = d; prev = null; }
+    h += msgHtml(m, prev, seen && m.id > seen);
+    prev = m;
+  });
+  var mineNew = S.chat.some(function (m) { return m.id > seen && m.mine; });
+  box.innerHTML = h || '<div class="empty">Сообщений пока нет. Напишите менеджеру — ответ придёт сюда.</div>';
+  if (S.chat.length) S.lastSeen = S.chat[S.chat.length - 1].id;
+  loadMedia(box);
+  if (nearBottom || mineNew) box.scrollTop = box.scrollHeight;
 }
-function sendMsg() {
-  var t = $('msg'), text = t.value.trim(); if (!text) return;
-  api('POST', '/requests/' + S.req.id + '/messages', { text: text }).then(function (m) { t.value = ''; S.chat.push(m); renderChat(); }).catch(fail);
+
+// Вложения отдаются только с токеном, поэтому грузим их сами и показываем через blob-ссылку.
+function blobUrl(id) {
+  if (S.blobs[id]) return Promise.resolve(S.blobs[id]);
+  return fetch('/attachments/' + id, { headers: { Authorization: 'Bearer ' + S.token } }).then(function (r) {
+    if (!r.ok) throw new Error('Файл недоступен');
+    return r.blob();
+  }).then(function (b) { S.blobs[id] = URL.createObjectURL(b); return S.blobs[id]; });
 }
+function loadMedia(box) {
+  box.querySelectorAll('[data-att]').forEach(function (el) {
+    var id = el.getAttribute('data-att');
+    blobUrl(id).then(function (u) {
+      if (el.tagName === 'IMG') el.onload = function () { var b = $('chat'); if (b && b.scrollHeight - b.scrollTop - b.clientHeight < 400) b.scrollTop = b.scrollHeight; };
+      el.src = u;
+    }).catch(function () { el.replaceWith(document.createTextNode('⚠ файл недоступен')); });
+  });
+}
+
+// ---- поле ввода ----
+function renderComposer() {
+  var c = $('composer'); if (!c) return;
+  var h = '';
+  if (S.reply) h += '<div class="ctxline"><span>↩</span><div class="sp"><b>' + esc(S.reply.authorName) + '</b><span>' + esc(snippet(S.reply)) + '</span></div><button class="cb" data-chat="cancelCtx" title="Отменить">✕</button></div>';
+  if (S.edit) h += '<div class="ctxline"><span>✎</span><div class="sp"><b>Редактирование</b><span>' + esc(snippet(S.edit)) + '</span></div><button class="cb" data-chat="cancelCtx" title="Отменить">✕</button></div>';
+  if (S.uploading) h += '<div class="uploading">⏳ ' + esc(S.uploading) + '</div>';
+  if (S.emojiOpen) h += '<div class="emoji">' + EMOJI.map(function (e) { return '<button data-emoji-ins="' + e + '">' + e + '</button>'; }).join('') + '</div>';
+  if (S.rec) {
+    h += '<div class="bar"><button class="cb" data-chat="recCancel" title="Отменить запись">🗑</button><div class="recbar"><span class="dot"></span><span id="recT">0:00</span><span class="xs" style="font-weight:400">запись голосового…</span></div><button class="cb send" data-chat="recSend" title="Отправить">➤</button></div>';
+  } else {
+    var text = S.chatDraft || '';
+    h += '<div class="bar"><button class="cb" data-chat="attach" title="Фото, видео или файл">📎</button>' +
+      '<textarea id="msg" rows="1" placeholder="' + (S.edit ? 'Новый текст…' : 'Сообщение') + '">' + esc(text) + '</textarea>' +
+      '<button class="cb" data-chat="emoji" title="Эмодзи">😊</button>' + mainBtn(text) + '</div>';
+  }
+  c.innerHTML = h;
+  var t = $('msg'); if (t) autosize(t);
+}
+function mainBtn(text) {
+  return text.trim() || S.edit ? '<button class="cb send" id="cbMain" data-chat="send" title="Отправить">➤</button>' : '<button class="cb" id="cbMain" data-chat="rec" title="Записать голосовое">🎤</button>';
+}
+function autosize(t) { t.style.height = 'auto'; t.style.height = Math.min(t.scrollHeight, 140) + 'px'; }
+
+function sendText() {
+  var t = $('msg'), text = t ? t.value.trim() : '';
+  if (S.edit) {
+    var m = S.edit;
+    if (!text && !m.attachment) return toast('Пустое сообщение', true);
+    return api('PATCH', '/requests/' + S.req.id + '/messages/' + m.id, { text: text }).then(function (x) {
+      replaceMsg(x); S.edit = null; S.chatDraft = ''; renderComposer(); toast('Сообщение изменено');
+    }).catch(fail);
+  }
+  if (!text) return;
+  var body = { text: text };
+  if (S.reply) body.replyToId = S.reply.id;
+  S.chatDraft = ''; t.value = ''; autosize(t); swapMain('');
+  return api('POST', '/requests/' + S.req.id + '/messages', body).then(function (m) {
+    S.reply = null; S.chat.push(m); renderComposer(); renderChat(); var b = $('chat'); if (b) b.scrollTop = b.scrollHeight;
+  }).catch(function (e) { S.chatDraft = text; renderComposer(); fail(e); });
+}
+function replaceMsg(x) { S.chat = S.chat.map(function (m) { return m.id === x.id ? x : m; }); renderChat(); }
+function swapMain(text) { var b = $('cbMain'); if (b) b.outerHTML = mainBtn(text); }
+
+// ---- файлы: кнопка, вставка из буфера, перетаскивание ----
+function sendFiles(files, opts) {
+  opts = opts || {};
+  files = Array.prototype.slice.call(files || []);
+  if (!files.length) return Promise.resolve();
+  var big = files.filter(function (f) { return f.size > MAX_FILE; });
+  if (big.length) { toast('Файл больше 25 МБ: ' + big[0].name, true); files = files.filter(function (f) { return f.size <= MAX_FILE; }); }
+  var caption = opts.caption !== undefined ? opts.caption : ($('msg') ? $('msg').value.trim() : '');
+  var replyId = S.reply ? S.reply.id : null;
+  var chain = Promise.resolve();
+  files.forEach(function (f, i) {
+    chain = chain.then(function () {
+      S.uploading = 'Отправка ' + (f.name || 'файла') + (files.length > 1 ? ' (' + (i + 1) + ' из ' + files.length + ')' : '') + '…'; renderComposer();
+      var q = '?name=' + encodeURIComponent(f.name || 'файл') + (opts.kind ? '&kind=' + opts.kind : '') + (opts.duration ? '&duration=' + Math.round(opts.duration) : '');
+      return fetch('/requests/' + S.req.id + '/attachments' + q, { method: 'POST', headers: { Authorization: 'Bearer ' + S.token, 'Content-Type': 'application/octet-stream', 'X-File-Type': f.type || 'application/octet-stream' }, body: f })
+        .then(function (r) { return r.json().then(function (j) { if (!r.ok) throw new Error(r.status === 413 ? 'Файл слишком большой' : (ERR[j.error] || 'Не удалось загрузить файл')); return j; }); })
+        .then(function (a) {
+          var body = { attachmentId: a.id };
+          if (i === 0 && caption) body.text = caption;
+          if (i === 0 && replyId) body.replyToId = replyId;
+          return api('POST', '/requests/' + S.req.id + '/messages', body);
+        })
+        .then(function (m) { S.chat.push(m); renderChat(); var b = $('chat'); if (b) b.scrollTop = b.scrollHeight; });
+    });
+  });
+  return chain.then(function () {
+    if (caption && opts.caption === undefined) S.chatDraft = '';
+    S.reply = null; S.uploading = null; renderComposer();
+  }).catch(function (e) { S.uploading = null; renderComposer(); fail(e); });
+}
+
+// ---- голосовые ----
+function startRec() {
+  if (!navigator.mediaDevices || !window.MediaRecorder) return toast('Браузер не умеет записывать звук', true);
+  navigator.mediaDevices.getUserMedia({ audio: true }).then(function (stream) {
+    var type = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg'].filter(function (t) { return MediaRecorder.isTypeSupported(t); })[0] || '';
+    var rec = new MediaRecorder(stream, type ? { mimeType: type } : undefined), chunks = [];
+    rec.ondataavailable = function (e) { if (e.data && e.data.size) chunks.push(e.data); };
+    S.rec = { rec: rec, stream: stream, chunks: chunks, start: Date.now(), send: false };
+    rec.onstop = function () {
+      var r = S.rec; S.rec = null; clearInterval(r.timer);
+      stream.getTracks().forEach(function (t) { t.stop(); });
+      renderComposer();
+      if (!r.send) return;
+      var dur = Date.now() - r.start;
+      if (dur < 600) return toast('Слишком коротко — удерживайте запись дольше', true);
+      var mime = (rec.mimeType || 'audio/webm').split(';')[0];
+      var file = new File(chunks, 'голосовое.' + (mime.indexOf('mp4') >= 0 ? 'm4a' : mime.indexOf('ogg') >= 0 ? 'ogg' : 'webm'), { type: rec.mimeType || 'audio/webm' });
+      sendFiles([file], { kind: 'voice', duration: dur, caption: '' });
+    };
+    rec.start(250);
+    S.rec.timer = setInterval(function () { var e = $('recT'); if (e && S.rec) e.textContent = durFmt(Date.now() - S.rec.start); }, 250);
+    renderComposer();
+  }).catch(function () { toast('Нет доступа к микрофону. Разрешите его в настройках браузера', true); });
+}
+function stopRec(send) { if (!S.rec) return; S.rec.send = send; S.rec.rec.stop(); }
+
+// проигрыватель голосовых: один звук за раз, прогресс по полоскам
+var player = { audio: null, id: null };
+function playVoice(id) {
+  if (player.id === id && player.audio) { if (player.audio.paused) player.audio.play(); else player.audio.pause(); return; }
+  if (player.audio) player.audio.pause();
+  blobUrl(id).then(function (u) {
+    var a = new Audio(u); player = { audio: a, id: id };
+    var btnEl = function () { return document.querySelector('[data-play="' + id + '"]'); };
+    a.onplay = function () { var b = btnEl(); if (b) b.textContent = '❚❚'; };
+    a.onpause = a.onended = function () { var b = btnEl(); if (b) b.textContent = '▶'; };
+    a.ontimeupdate = function () {
+      var wrap = document.querySelector('[data-seek="' + id + '"]'); if (!wrap || !a.duration || !isFinite(a.duration)) return;
+      var bs = wrap.children, k = Math.round(bs.length * a.currentTime / a.duration);
+      for (var i = 0; i < bs.length; i++) bs[i].className = i < k ? 'on' : '';
+      var d = $('vd' + id); if (d) d.textContent = durFmt(a.currentTime * 1000);
+    };
+    a.play().catch(function () { toast('Не удалось воспроизвести', true); });
+  }).catch(fail);
+}
+
+// ---- меню сообщения: реакции, ответить, копировать, изменить, удалить ----
+function openCtx(m, x, y) {
+  closeCtx();
+  if (m.deleted) return;
+  var canEdit = m.mine, canDel = m.mine || S.me.role === 'admin';
+  var el = document.createElement('div'); el.className = 'ctx'; el.id = 'ctx';
+  el.innerHTML = '<div class="em">' + REACTIONS.map(function (e) { return '<button data-ctx-react="' + e + '">' + e + '</button>'; }).join('') + '</div>' +
+    '<div class="it" data-ctx="reply">↩ Ответить</div>' + (m.text ? '<div class="it" data-ctx="copy">⧉ Копировать текст</div>' : '') +
+    (canEdit ? '<div class="it" data-ctx="edit">✎ Изменить</div>' : '') + (canDel ? '<div class="it bad" data-ctx="delete">🗑 Удалить</div>' : '');
+  document.body.appendChild(el);
+  var w = el.offsetWidth, h = el.offsetHeight;
+  el.style.left = Math.max(8, Math.min(x, innerWidth - w - 8)) + 'px';
+  el.style.top = Math.max(8, Math.min(y, innerHeight - h - 8)) + 'px';
+  S.ctxMsg = m;
+}
+function closeCtx() { var c = $('ctx'); if (c) c.remove(); }
+function msgById(id) { return S.chat.filter(function (m) { return m.id === Number(id); })[0]; }
+function react(mid, emoji) {
+  return api('POST', '/requests/' + S.req.id + '/messages/' + mid + '/reaction', { emoji: emoji }).then(replaceMsg).catch(fail);
+}
+function lightbox(src) { var d = document.createElement('div'); d.className = 'lb'; d.innerHTML = '<img src="' + src + '" alt="">'; d.onclick = function () { d.remove(); }; document.body.appendChild(d); }
+
+document.addEventListener('click', function (ev) {
+  var t = ev.target;
+  if (!t.closest('#ctx') && $('ctx')) { closeCtx(); if (!t.closest('[data-chat]')) return; }
+  var c = t.closest('[data-chat]');
+  if (c) {
+    var a = c.getAttribute('data-chat');
+    if (a === 'send') return sendText();
+    if (a === 'attach') return $('fileIn') && $('fileIn').click();
+    if (a === 'emoji') { S.chatDraft = $('msg') ? $('msg').value : S.chatDraft; S.emojiOpen = !S.emojiOpen; renderComposer(); return $('msg') && $('msg').focus(); }
+    if (a === 'rec') return startRec();
+    if (a === 'recCancel') return stopRec(false);
+    if (a === 'recSend') return stopRec(true);
+    if (a === 'cancelCtx') { if (S.edit) S.chatDraft = ''; S.reply = null; S.edit = null; return renderComposer(); }
+  }
+  var ei = t.closest('[data-emoji-ins]');
+  if (ei) {
+    var ta = $('msg'), e = ei.getAttribute('data-emoji-ins');
+    if (ta) { var p = ta.selectionStart || ta.value.length; ta.value = ta.value.slice(0, p) + e + ta.value.slice(ta.selectionEnd || p); ta.focus(); ta.selectionStart = ta.selectionEnd = p + e.length; S.chatDraft = ta.value; swapMain(ta.value); autosize(ta); }
+    return;
+  }
+  var cr = t.closest('[data-ctx-react]');
+  if (cr) { var m0 = S.ctxMsg; closeCtx(); var mine = (m0.reactions || []).filter(function (r) { return r.mine; })[0]; return react(m0.id, mine && mine.emoji === cr.getAttribute('data-ctx-react') ? null : cr.getAttribute('data-ctx-react')); }
+  var cx = t.closest('[data-ctx]');
+  if (cx) {
+    var m = S.ctxMsg, act = cx.getAttribute('data-ctx'); closeCtx();
+    if (act === 'reply') { S.reply = m; S.edit = null; S.chatDraft = $('msg') ? $('msg').value : ''; renderComposer(); return $('msg') && $('msg').focus(); }
+    if (act === 'copy') { (navigator.clipboard ? navigator.clipboard.writeText(m.text) : Promise.reject()).then(function () { toast('Текст скопирован'); }).catch(function () { toast('Не удалось скопировать', true); }); return; }
+    if (act === 'edit') { S.edit = m; S.reply = null; S.chatDraft = m.text; renderComposer(); var ta2 = $('msg'); if (ta2) { ta2.focus(); ta2.selectionStart = ta2.value.length; } return; }
+    if (act === 'delete') {
+      if (!confirm('Удалить сообщение у всех?')) return;
+      return api('DELETE', '/requests/' + S.req.id + '/messages/' + m.id).then(function () { m = Object.assign({}, m, { deleted: true, text: '', attachment: null, reactions: [], replyTo: null }); replaceMsg(m); }).catch(fail);
+    }
+  }
+  var rx = t.closest('[data-react]');
+  if (rx) { var mm = msgById(rx.getAttribute('data-react')), em = rx.getAttribute('data-emoji'); return react(mm.id, rx.classList.contains('mine') ? null : em); }
+  var pl = t.closest('[data-play]'); if (pl) return playVoice(pl.getAttribute('data-play'));
+  var sk = t.closest('[data-seek]');
+  if (sk) { var vid = sk.getAttribute('data-seek'); if (player.id !== vid) return playVoice(vid); var r = sk.getBoundingClientRect(); if (player.audio && player.audio.duration) player.audio.currentTime = player.audio.duration * (ev.clientX - r.left) / r.width; return; }
+  var ph = t.closest('img.ph'); if (ph && ph.src) return lightbox(ph.src);
+  var dl = t.closest('[data-dl]');
+  if (dl) return blobUrl(dl.getAttribute('data-dl')).then(function (u) { var l = document.createElement('a'); l.href = u; l.download = dl.getAttribute('data-name'); document.body.appendChild(l); l.click(); l.remove(); }).catch(fail);
+  var gt = t.closest('[data-goto]');
+  if (gt) { var el = document.querySelector('[data-mid="' + gt.getAttribute('data-goto') + '"]'); if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); el.classList.add('flash'); setTimeout(function () { el.classList.remove('flash'); }, 1200); } }
+});
+
+document.addEventListener('contextmenu', function (ev) {
+  var m = ev.target.closest('.msg[data-mid]');
+  if (!m || ev.target.closest('a,video')) return;
+  ev.preventDefault();
+  openCtx(msgById(m.getAttribute('data-mid')), ev.clientX, ev.clientY);
+});
+// долгое нажатие на телефоне открывает то же меню
+var lpT;
+document.addEventListener('touchstart', function (ev) {
+  var m = ev.target.closest('.msg[data-mid]'); if (!m || ev.target.closest('a,video,button')) return;
+  var tch = ev.touches[0];
+  lpT = setTimeout(function () { if (navigator.vibrate) navigator.vibrate(15); openCtx(msgById(m.getAttribute('data-mid')), tch.clientX, tch.clientY); }, 450);
+}, { passive: true });
+['touchend', 'touchmove', 'touchcancel'].forEach(function (e) { document.addEventListener(e, function () { clearTimeout(lpT); }, { passive: true }); });
+// двойной щелчок — быстрая реакция 👍, как в мессенджерах
+document.addEventListener('dblclick', function (ev) {
+  var m = ev.target.closest('.msg[data-mid]'); if (!m || m.classList.contains('del') || ev.target.closest('a,video,button,.voice,.file')) return;
+  var msg = msgById(m.getAttribute('data-mid')); var mine = (msg.reactions || []).filter(function (r) { return r.mine; })[0];
+  react(msg.id, mine && mine.emoji === '👍' ? null : '👍');
+});
+
+document.addEventListener('input', function (ev) {
+  if (ev.target.id !== 'msg') return;
+  S.chatDraft = ev.target.value; autosize(ev.target);
+  var b = $('cbMain'), want = ev.target.value.trim() || S.edit ? 'send' : 'rec';
+  if (b && b.getAttribute('data-chat') !== want) swapMain(ev.target.value);
+});
+document.addEventListener('keydown', function (ev) {
+  if (ev.target.id === 'msg' && ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); sendText(); }
+  if (ev.key === 'Escape') { closeCtx(); if (S.reply || S.edit) { S.reply = null; S.edit = null; renderComposer(); } }
+  // стрелка вверх в пустом поле — изменить своё последнее сообщение
+  if (ev.target.id === 'msg' && ev.key === 'ArrowUp' && !ev.target.value) {
+    var last = S.chat.filter(function (m) { return m.mine && !m.deleted; }).pop();
+    if (last) { ev.preventDefault(); S.edit = last; S.chatDraft = last.text; renderComposer(); $('msg').focus(); }
+  }
+});
+document.addEventListener('change', function (ev) { if (ev.target.id === 'fileIn') { sendFiles(ev.target.files); ev.target.value = ''; } });
+document.addEventListener('paste', function (ev) {
+  if (!chatEnabled() || !ev.clipboardData || !ev.clipboardData.files.length) return;
+  ev.preventDefault(); sendFiles(ev.clipboardData.files);
+});
+['dragenter', 'dragover'].forEach(function (n) {
+  document.addEventListener(n, function (ev) {
+    var box = ev.target.closest && ev.target.closest('#chatbox'); if (!box) return;
+    ev.preventDefault(); if (!box.querySelector('.drop')) { var d = document.createElement('div'); d.className = 'drop'; d.textContent = 'Отпустите, чтобы отправить'; box.style.position = 'relative'; box.appendChild(d); }
+  });
+});
+document.addEventListener('dragleave', function (ev) { var box = $('chatbox'); if (box && (!ev.relatedTarget || !box.contains(ev.relatedTarget))) { var d = box.querySelector('.drop'); if (d) d.remove(); } });
+document.addEventListener('drop', function (ev) {
+  var box = ev.target.closest && ev.target.closest('#chatbox'); if (!box) return;
+  ev.preventDefault(); var d = box.querySelector('.drop'); if (d) d.remove();
+  if (ev.dataTransfer && ev.dataTransfer.files.length) sendFiles(ev.dataTransfer.files);
+});
 
 // ---------- клиенты (менеджер, админ) ----------
 function viewCompanies() {
-  $('app').innerHTML = '<div class="wrap wide"><div class="empty">Загрузка…</div></div>';
-  api('GET', '/companies').then(function (l) { S.companies = l; renderCompanies(); }).catch(fail);
+  $('app').innerHTML = '<div class="wrap wide loading"><div class="skel"></div><div class="skel"></div><div class="skel"></div></div>';
+  var mg = S.me.role === 'admin' && !S.managers ? api('GET', '/staff/managers').then(function (m) { S.managers = m; }) : Promise.resolve();
+  Promise.all([api('GET', '/companies'), mg]).then(function (x) { S.companies = x[0]; renderCompanies(); }).catch(fail);
 }
 function renderCompanies() {
   var me = S.me, f = S.coFilter || 'all';
@@ -415,6 +738,7 @@ function renderCompanies() {
     if (c.managerId === null && me.role === 'manager') acts.push('<button class="btn sm" data-act="claim" data-id="' + c.id + '">Взять клиента</button>');
     if (own && c.status === 'pending') acts.push('<button class="btn sm pri" data-act="approve" data-id="' + c.id + '">Подтвердить компанию</button>');
     if (own) acts.push('<label class="row xs" style="cursor:pointer"><input type="checkbox" data-act="coVat" data-id="' + c.id + '"' + (c.vatInvoice ? ' checked' : '') + '> счёт с НДС</label>');
+    if (me.role === 'admin' && S.managers) acts.push('<label class="row xs">Ведёт: <select class="inp" style="width:auto;padding:5px 8px" data-act="reassign" data-id="' + c.id + '"><option value="">—</option>' + S.managers.map(function (m) { return '<option value="' + m.id + '"' + (m.id === c.managerId ? ' selected' : '') + '>' + esc(m.name) + '</option>'; }).join('') + '</select></label>');
     return '<div class="card" style="cursor:default"><div class="row"><b class="sp">' + esc(c.name) + '</b><span class="pill p-' + c.status + '">' + esc(CO_ST[c.status]) + '</span></div>' +
       '<div class="s">' + (c.managerName ? 'Ведёт: ' + esc(c.managerName) : '<span class="tag warn">не распределён</span>') + ' · МойСклад: ' + (c.msCounterpartyId ? '<span class="tag ok">контрагент связан</span>' : '<span class="tag warn">контрагент не выбран</span>') + '</div>' +
       (own ? '<div class="pick" style="margin-top:8px"><input class="inp" data-cp="' + c.id + '" placeholder="' + (c.msCounterpartyId ? 'Сменить контрагента МойСклад…' : 'Найти контрагента в МойСклад…') + '" autocomplete="off"><div id="cp' + c.id + '"></div></div>' : '') +
@@ -489,7 +813,6 @@ document.addEventListener('click', function (ev) {
         if (!x.remaining && S.me.role === 'picker') return go('#/');
         return reloadReq(); }).catch(function (e) { el.disabled = false; fail(e); });
     }
-    case 'send': return sendMsg();
     case 'coFilter': S.coFilter = el.getAttribute('data-f'); return renderCompanies();
     case 'pickCp': {
       var co = el.getAttribute('data-co');
@@ -508,6 +831,7 @@ document.addEventListener('change', function (ev) {
   }
   var act = el.getAttribute('data-act');
   if (act === 'vat') return api('PATCH', '/requests/' + S.req.id, { vatInvoice: el.checked }).then(reloadReq).catch(function (e) { el.checked = !el.checked; fail(e); });
+  if (act === 'reassign') { if (!el.value) return; return api('POST', '/companies/' + el.getAttribute('data-id') + '/reassign', { managerId: Number(el.value) }).then(function () { toast('Клиент передан менеджеру'); viewCompanies(); }).catch(fail); }
   if (act === 'coVat') return api('PATCH', '/companies/' + el.getAttribute('data-id'), { vatInvoice: el.checked }).then(function () { toast(el.checked ? 'Новые заявки клиента — со счётом с НДС' : 'Счёт с НДС выключен'); }).catch(function (e) { el.checked = !el.checked; fail(e); });
 });
 
@@ -525,7 +849,6 @@ document.addEventListener('keydown', function (ev) {
   var id = ev.target.id;
   if (id === 'phone') { ev.preventDefault(); reqCode(); }
   else if (id === 'code' || id === 'pcompany') { ev.preventDefault(); verify(); }
-  else if (id === 'msg' && !ev.shiftKey) { ev.preventDefault(); sendMsg(); }
 });
 
 route();
