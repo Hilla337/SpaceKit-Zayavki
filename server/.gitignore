@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.json.key
+# локальные файлы с телефонами и списками клиентов, в репозиторий не попадают
+*.local.csv
+*.local.sh

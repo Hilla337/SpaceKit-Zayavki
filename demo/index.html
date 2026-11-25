@@ -143,7 +143,7 @@ a{color:var(--acc)}
 <script>
 var ST = {new:'Новая', work:'В обработке', confirm:'На подтверждении', assembly:'Передана на сборку', partial:'Частично отгружена', shipped:'Отгружена на сборку', cancelled:'Отменена'};
 var UNITS = ['шт','м²','м','уп','меш','кг','л','рул','лист'];
-var LIFT = ['грузовой','пассажирский','не работает','нет'];
+var LIFT = ['грузовой','пассажирский','нет'];
 var OBJ_F = [
   ['jk','Название ЖК',0],['street','Улица',1],['house','Дом',1],['entrance','Подъезд',0],['floor','Этаж',1],['apt','Квартира',1],
   ['height','Ограничение по высоте',0],['lift','Лифт',1],['resp','Ответственное лицо',1],['respPhone','Телефон ответственного',1],
@@ -593,7 +593,15 @@ function setPrice(id,n,v){var r=byId(id), i=r.items[n]; i.price=parseFloat(Strin
 function sendConfirm(id){var r=byId(id); r.status='confirm'; log(r,'Отправлена заказчику на подтверждение'); notify('cust:'+r.company,'Заявка '+id+' ждёт вашего подтверждения',id); S.mgr.tab='confirm'; render(); toast('Заказчику пришло уведомление: заявка ждёт подтверждения');}
 
 /* ================= УВЕДОМЛЕНИЯ И ЧАТ ================= */
-function notify(to,text,id){ S.notes.push({to:to,t:t(),text:text,id:id,read:false}); }
+function notify(to,text,id){ S.notes.push({to:to,t:t(),text:text,id:id,read:false});
+  /* SMS заказчику: на все события, кроме переписки в чате (как на сервере) */
+  if(to.indexOf('cust:')===0 && text.indexOf('Менеджер по ')!==0){ S.sms=S.sms||[]; if(!S.smsOff){ S.sms.push({t:t(),text:'SpaceKit: '+text}); try{toast('📱 SMS заказчику: '+text);}catch(e){} } renderSms(); } }
+function renderSms(){
+  var b=document.getElementById('smsbox'); if(!b){ b=document.createElement('div'); b.id='smsbox'; b.style.cssText='position:fixed;right:14px;bottom:14px;z-index:50;font:13px Inter,system-ui,sans-serif'; document.body.appendChild(b); }
+  var l=(S.sms||[]).slice(-6).reverse();
+  b.innerHTML='<div style="background:#fff;border:1px solid #e5e5e0;border-radius:12px;box-shadow:0 4px 16px rgba(0,0,0,.12);width:270px;overflow:hidden"><div onclick="S.smsOpen=!S.smsOpen;renderSms()" style="padding:8px 12px;cursor:pointer;font-weight:600;display:flex;gap:8px">📱 SMS заказчику <span class=sp style="flex:1"></span><span style="color:#6e6e6a;font-weight:500">'+(S.sms||[]).length+'</span></div>'+(S.smsOpen?'<div style="padding:8px 12px;border-top:1px solid #e5e5e0"><label style="display:flex;gap:6px;align-items:center;margin-bottom:6px"><input type=checkbox '+(S.smsOff?'':'checked')+' onchange="S.smsOff=!this.checked;save();renderSms()"> Заказчик получает SMS</label>'+(l.length?l.map(function(x){return '<div style="background:#eaf0ff;border-radius:10px;padding:6px 9px;margin-bottom:5px">'+e(x.text)+'<div style="color:#6e6e6a;font-size:11px">'+x.t+'</div></div>';}).join(''):'<div style="color:#6e6e6a">SMS пока нет. Подтвердите заявку или отгрузите её.</div>')+'</div>':'')+'</div>';
+}
+setTimeout(function(){ try{renderSms();}catch(e){} },300);
 function myKey(){ return S.role==='mgr'?'mgr':'cust:'+S.cust.company; }
 function unread(k){ return S.notes.filter(function(n){return n.to===k&&!n.read;}).length; }
 function markRead(k,id){ S.notes.forEach(function(n){ if(n.to===k&&n.id===id) n.read=true; }); }
