@@ -42,7 +42,7 @@ test('MsWriter: проект с доп. полями, заказ и отгруз
   ]);
   assert.equal(await w.ensureProject({ key: 'zayavki-obj-1', name: 'X', fields: {} }), 'old', 'повторно не создаётся');
 
-  await w.createOrder({ key: 'zayavki-req-7', counterpartyId: 'cp', projectId: 'pr', description: 'd', positions: pos });
+  await w.createOrder({ key: 'zayavki-req-7', counterpartyId: 'cp', projectId: 'pr', description: 'd', positions: pos, vatRate: null });
   const o = posts[1]!;
   assert.equal(o.url, '/api/remap/1.2/entity/customerorder');
   assert.match(o.body.organization.meta.href, /\/entity\/organization\/org$/);
@@ -53,17 +53,36 @@ test('MsWriter: проект с доп. полями, заказ и отгруз
   assert.equal(o.body.positions[0].price, 45055, 'цена в копейках');
   assert.equal(o.body.positions[0].quantity, 2.5);
 
-  await w.createDemand({ key: 'zayavki-ship-7-x', orderId: 'ord', counterpartyId: 'cp', projectId: null, positions: pos });
+  await w.createDemand({ key: 'zayavki-ship-7-x', orderId: 'ord', counterpartyId: 'cp', projectId: null, positions: pos, vatRate: null });
   assert.match(posts[2]!.body.customerOrder.meta.href, /\/entity\/customerorder\/ord$/);
   assert.equal(posts[2]!.body.project, undefined);
-  assert.deepEqual(await w.createDemand({ key: 'zayavki-ship-7-x', orderId: 'ord', counterpartyId: 'cp', projectId: null, positions: pos }), { id: 'old', name: 'старый' });
+  assert.equal(posts[2]!.body.vatEnabled, undefined, 'без счёта с НДС — настройки МойСклад по умолчанию');
+  assert.equal(posts[2]!.body.positions[0].vat, undefined);
+  assert.deepEqual(await w.createDemand({ key: 'zayavki-ship-7-x', orderId: 'ord', counterpartyId: 'cp', projectId: null, positions: pos, vatRate: null }), { id: 'old', name: 'старый' });
   assert.equal(posts.length, 3);
 });
 
 test('MsWriter: ошибка МойСклад доходит до человека текстом', async () => {
   const f = (async () => Response.json({ errors: [{ error: 'Нельзя отгрузить товар, которого нет на складе' }] }, { status: 412 })) as unknown as typeof fetch;
   const w = new MsWriter(new MoySklad('T', f, 1), { organizationId: 'org', storeId: 'st' });
-  await assert.rejects(w.createDemand({ key: 'k', orderId: 'o', counterpartyId: 'c', projectId: null, positions: [] }), (e: unknown) => e instanceof MsError && /412.*нет на складе/.test(e.message));
+  await assert.rejects(w.createDemand({ key: 'k', orderId: 'o', counterpartyId: 'c', projectId: null, positions: [], vatRate: null }), (e: unknown) => e instanceof MsError && /412.*нет на складе/.test(e.message));
+});
+
+test('MsWriter: счёт с НДС — НДС 5% внутри цены в заказе и отгрузке', async () => {
+  const bodies: any[] = [];
+  const f = (async (url: string, init: RequestInit) => {
+    if (init.method === 'POST') { bodies.push(JSON.parse(String(init.body))); return Response.json({ id: 'x', name: '1' }); }
+    return Response.json({ rows: [], states: [] });
+  }) as unknown as typeof fetch;
+  const w = new MsWriter(new MoySklad('T', f, 1), { organizationId: 'org', storeId: 'st' });
+  const pos: MsPosition[] = [{ productId: 'p1', qty: 1, price: 100 }, { productId: 'p2', qty: 2, price: 50 }];
+  await w.createOrder({ key: 'k1', counterpartyId: 'c', projectId: null, description: 'd', positions: pos, vatRate: 5 });
+  await w.createDemand({ key: 'k2', orderId: 'o', counterpartyId: 'c', projectId: null, positions: pos, vatRate: 5 });
+  for (const b of bodies) {
+    assert.equal(b.vatEnabled, true);
+    assert.equal(b.vatIncluded, true, 'НДС внутри цены, цена клиента не меняется');
+    assert.deepEqual(b.positions.map((x: { vat: number; price: number }) => [x.vat, x.price]), [[5, 10000], [5, 5000]]);
+  }
 });
 
 test('названия проектов и да/нет как в МойСклад', () => {
@@ -76,8 +95,8 @@ test('названия проектов и да/нет как в МойСкла�
 // ---------- путь заявки с поддельным МойСклад ----------
 
 class FakeMs implements MsGateway {
-  orders: { key: string; counterpartyId: string; projectId: string | null; positions: MsPosition[] }[] = [];
-  demands: { key: string; orderId: string; positions: MsPosition[] }[] = [];
+  orders: { key: string; counterpartyId: string; projectId: string | null; positions: MsPosition[]; vatRate: number | null }[] = [];
+  demands: { key: string; orderId: string; positions: MsPosition[]; vatRate: number | null }[] = [];
   projects: string[] = [];
   failNext = false;
   private n = 0;
@@ -226,4 +245,34 @@ test('отгрузка одной кнопкой создаёт отгрузку
 
   const card = (await call(phil, 'GET', `/requests/${id}`)).json();
   assert.deepEqual(card.shipments.map((s: { number: string }) => s.number), [part.json().shipment, rest.json().shipment]);
+});
+
+test('счёт с НДС: флаг у компании, заявка его наследует, менеджер может поменять до заказа; в МойСклад уходит 5%', async () => {
+  assert.equal((await call(ann, 'PATCH', `/companies/${company}`, { vatInvoice: true })).statusCode, 403, 'заказчик не может');
+  assert.equal((await call(tanya, 'PATCH', `/companies/${company}`, { vatInvoice: true })).statusCode, 404, 'чужой менеджер не видит');
+  assert.equal((await call(phil, 'PATCH', `/companies/${company}`, { vatInvoice: true })).statusCode, 200);
+
+  const id = await toConfirm();
+  assert.equal((await call(ann, 'GET', `/requests/${id}`)).json().vatInvoice, true, 'новая заявка берёт флаг от компании');
+  assert.equal((await call(ann, 'PATCH', `/requests/${id}`, { vatInvoice: false })).statusCode, 403);
+  // Разово без НДС, потом снова с НДС: в истории оба переключения.
+  assert.equal((await call(phil, 'PATCH', `/requests/${id}`, { vatInvoice: false })).statusCode, 200);
+  assert.equal((await call(phil, 'PATCH', `/requests/${id}`, { vatInvoice: true })).statusCode, 200);
+  assert.equal((await call(phil, 'GET', `/requests/${id}`)).json().history.filter((h: { text: string }) => /счёт с НДС/.test(h.text)).length, 2);
+
+  assert.equal((await call(phil, 'POST', `/requests/${id}/status`, { to: 'confirm' })).statusCode, 200);
+  assert.equal((await call(ann, 'POST', `/requests/${id}/status`, { to: 'assembly' })).statusCode, 200);
+  assert.equal(ms.orders.at(-1)!.key, `zayavki-req-${id}`);
+  assert.equal(ms.orders.at(-1)!.vatRate, 5);
+  assert.equal((await call(phil, 'PATCH', `/requests/${id}`, { vatInvoice: false })).statusCode, 409, 'после заказа в МойСклад ставку меняют там');
+
+  assert.equal((await call(picker, 'POST', `/requests/${id}/ship`)).statusCode, 200);
+  assert.equal(ms.demands.at(-1)!.vatRate, 5, 'отгрузка с той же ставкой');
+
+  // Компания без флага: заказ без НДС, как раньше.
+  assert.equal((await call(phil, 'PATCH', `/companies/${company}`, { vatInvoice: false })).statusCode, 200);
+  const id2 = await toConfirm();
+  assert.equal((await call(phil, 'POST', `/requests/${id2}/status`, { to: 'confirm' })).statusCode, 200);
+  assert.equal((await call(phil, 'POST', `/requests/${id2}/status`, { to: 'assembly' })).statusCode, 200);
+  assert.equal(ms.orders.at(-1)!.vatRate, null);
 });

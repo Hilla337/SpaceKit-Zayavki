@@ -44,6 +44,7 @@ export interface RequestRow {
   ms_order_id: string | null;
   ms_order_name: string | null;
   ms_counterparty_id: string | null;
+  vat_invoice: boolean;
   created_at: Date;
   updated_at: Date;
   company_name: string;
@@ -86,7 +87,7 @@ function presentItem(i: ItemRow, staff: boolean, prices: boolean) {
 
 export async function loadRequest(q: Queryable, id: number, lock = false): Promise<RequestRow | undefined> {
   const r = await q.query<RequestRow>(
-    `SELECT r.id, r.company_id, r.status, r.created_by, r.object_id, r.change_comment, r.ms_order_id, r.ms_order_name, r.created_at, r.updated_at,
+    `SELECT r.id, r.company_id, r.status, r.created_by, r.object_id, r.change_comment, r.ms_order_id, r.ms_order_name, r.vat_invoice, r.created_at, r.updated_at,
             c.name AS company_name, c.ms_counterparty_id, c.status AS company_status, c.manager_id, c.show_prices_early
      FROM requests r JOIN companies c ON c.id = r.company_id
      WHERE r.id = $1 ${lock ? 'FOR UPDATE OF r' : ''}`,
@@ -184,7 +185,7 @@ export function registerRequestRoutes(app: FastifyInstance, deps: Deps): void {
         }
 
         const rq = await q.query<{ id: number }>(
-          `INSERT INTO requests (company_id, created_by, object_id) VALUES ($1, $2, $3) RETURNING id`,
+          `INSERT INTO requests (company_id, created_by, object_id, vat_invoice) SELECT $1, $2, $3, vat_invoice FROM companies WHERE id = $1 RETURNING id`,
           [companyId, u.id, objId],
         );
         const requestId = rq.rows[0]!.id;
@@ -317,6 +318,7 @@ export function registerRequestRoutes(app: FastifyInstance, deps: Deps): void {
       companyName: r.company_name,
       managerId: r.manager_id,
       changeComment: r.change_comment,
+      vatInvoice: r.vat_invoice,
       ...(staff ? { msOrder: r.ms_order_name } : {}),
       createdAt: r.created_at,
       updatedAt: r.updated_at,
@@ -433,6 +435,36 @@ export function registerRequestRoutes(app: FastifyInstance, deps: Deps): void {
 
       if (!out.ok) return reply.code(out.status).send(out.body);
       return { ok: true };
+    },
+  );
+
+  // ---- счёт с НДС в этой заявке (менеджер клиента или админ, пока заказ в МойСклад не создан) ----
+  app.patch<{ Params: { id: string }; Body: { vatInvoice: boolean } }>(
+    '/requests/:id',
+    {
+      preHandler: app.authenticate,
+      schema: { body: { type: 'object', required: ['vatInvoice'], additionalProperties: false, properties: { vatInvoice: { type: 'boolean' } } } },
+    },
+    async (req, reply) => {
+      const u = req.user!;
+      const id = parseId(req.params.id);
+      if (!id) return reply.code(404).send({ error: 'not_found' });
+      type Out = { ok: true } | { ok: false; status: number; body: Record<string, unknown> };
+      const out = await db.tx<Out>(async (q) => {
+        const r = await loadRequest(q, id, true);
+        if (!r || !canViewRequest(u, requestInfo(r), companyInfo(r))) return { ok: false, status: 404, body: { error: 'not_found' } };
+        const canEdit = u.status === 'approved' && (u.role === 'admin' || (u.role === 'manager' && r.manager_id === u.id));
+        if (!canEdit) return { ok: false, status: 403, body: { error: 'forbidden' } };
+        // После подтверждения заказ уже в МойСклад с выбранной ставкой; менять там.
+        if (!['new', 'work', 'confirm'].includes(r.status) || r.ms_order_id) return { ok: false, status: 409, body: { error: 'order_created' } };
+        if (r.vat_invoice !== req.body.vatInvoice) {
+          await q.query('UPDATE requests SET vat_invoice = $2 WHERE id = $1', [id, req.body.vatInvoice]);
+          await addHistory(q, id, u.id, `${u.name} ${req.body.vatInvoice ? 'включил(а)' : 'выключил(а)'} счёт с НДС`);
+        }
+        return { ok: true };
+      });
+      if (!out.ok) return reply.code(out.status).send(out.body);
+      return { ok: true, vatInvoice: req.body.vatInvoice };
     },
   );
 

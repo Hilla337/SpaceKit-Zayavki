@@ -127,8 +127,8 @@ export interface MsPosition {
 export interface MsGateway {
   getCounterparty(id: string): Promise<{ id: string; name: string } | null>;
   ensureProject(p: { key: string; name: string; fields: ObjectFields }): Promise<string>;
-  createOrder(o: { key: string; counterpartyId: string; projectId: string | null; description: string; positions: MsPosition[] }): Promise<{ id: string; name: string }>;
-  createDemand(d: { key: string; orderId: string; counterpartyId: string; projectId: string | null; positions: MsPosition[] }): Promise<{ id: string; name: string }>;
+  createOrder(o: { key: string; counterpartyId: string; projectId: string | null; description: string; positions: MsPosition[]; vatRate: number | null }): Promise<{ id: string; name: string }>;
+  createDemand(d: { key: string; orderId: string; counterpartyId: string; projectId: string | null; positions: MsPosition[]; vatRate: number | null }): Promise<{ id: string; name: string }>;
 }
 
 export interface MsWriterOptions {
@@ -158,7 +158,10 @@ export function projectName(f: ObjectFields): string {
 }
 
 const meta = (entity: string, id: string) => ({ meta: { href: `${BASE}/entity/${entity}/${id}`, type: entity, mediaType: 'application/json' } });
-const positions = (ps: MsPosition[]) => ps.map((p) => ({ quantity: p.qty, price: Math.round(p.price * 100), assortment: meta('product', p.productId) }));
+const positions = (ps: MsPosition[], vatRate: number | null) =>
+  ps.map((p) => ({ quantity: p.qty, price: Math.round(p.price * 100), assortment: meta('product', p.productId), ...(vatRate !== null ? { vat: vatRate } : {}) }));
+/** Счёт с НДС: НДС включён в цену (как в ручных заказах Spacekit), ставка в каждой строке. Без него — настройки МойСклад по умолчанию. */
+const vatFields = (vatRate: number | null) => (vatRate !== null ? { vatEnabled: true, vatIncluded: true } : {});
 
 type AttrMeta = { meta: unknown; name: string; type: string };
 
@@ -205,7 +208,7 @@ export class MsWriter implements MsGateway {
     return created.id;
   }
 
-  async createOrder(o: { key: string; counterpartyId: string; projectId: string | null; description: string; positions: MsPosition[] }): Promise<{ id: string; name: string }> {
+  async createOrder(o: { key: string; counterpartyId: string; projectId: string | null; description: string; positions: MsPosition[]; vatRate: number | null }): Promise<{ id: string; name: string }> {
     const found = await this.byKey('customerorder', o.key);
     if (found) return found;
     if (this.opts.orderState && this.orderStateMeta === undefined) {
@@ -220,12 +223,13 @@ export class MsWriter implements MsGateway {
       ...(o.projectId ? { project: meta('project', o.projectId) } : {}),
       ...(this.orderStateMeta ? { state: { meta: this.orderStateMeta } } : {}),
       description: o.description,
-      positions: positions(o.positions),
+      ...vatFields(o.vatRate),
+      positions: positions(o.positions, o.vatRate),
     });
     return { id: created.id, name: created.name };
   }
 
-  async createDemand(d: { key: string; orderId: string; counterpartyId: string; projectId: string | null; positions: MsPosition[] }): Promise<{ id: string; name: string }> {
+  async createDemand(d: { key: string; orderId: string; counterpartyId: string; projectId: string | null; positions: MsPosition[]; vatRate: number | null }): Promise<{ id: string; name: string }> {
     const found = await this.byKey('demand', d.key);
     if (found) return found;
     const created = await this.ms.post<{ id: string; name: string }>('/entity/demand', {
@@ -235,7 +239,8 @@ export class MsWriter implements MsGateway {
       store: meta('store', this.opts.storeId),
       customerOrder: meta('customerorder', d.orderId),
       ...(d.projectId ? { project: meta('project', d.projectId) } : {}),
-      positions: positions(d.positions),
+      ...vatFields(d.vatRate),
+      positions: positions(d.positions, d.vatRate),
     });
     return { id: created.id, name: created.name };
   }

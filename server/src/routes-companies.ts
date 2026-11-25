@@ -13,6 +13,7 @@ interface CompanyRow {
   manager_name: string | null;
   show_prices_early: boolean;
   ms_counterparty_id: string | null;
+  vat_invoice: boolean;
 }
 
 export function parseId(s: string): number | null {
@@ -24,7 +25,7 @@ const toInfo = (c: CompanyRow): CompanyInfo => ({ id: c.id, status: c.status, ma
 
 async function loadCompany(q: Queryable, id: number, lock = false): Promise<CompanyRow | undefined> {
   const r = await q.query<CompanyRow>(
-    `SELECT c.id, c.name, c.status, c.manager_id, m.name AS manager_name, c.show_prices_early, c.ms_counterparty_id
+    `SELECT c.id, c.name, c.status, c.manager_id, m.name AS manager_name, c.show_prices_early, c.ms_counterparty_id, c.vat_invoice
      FROM companies c LEFT JOIN users m ON m.id = c.manager_id
      WHERE c.id = $1 ${lock ? 'FOR UPDATE OF c' : ''}`,
     [id],
@@ -40,6 +41,7 @@ const present = (c: CompanyRow) => ({
   managerName: c.manager_name,
   showPricesEarly: c.show_prices_early,
   msCounterpartyId: c.ms_counterparty_id,
+  vatInvoice: c.vat_invoice,
 });
 
 export function registerCompanyRoutes(app: FastifyInstance, deps: Deps, _clock: () => Date): void {
@@ -51,7 +53,7 @@ export function registerCompanyRoutes(app: FastifyInstance, deps: Deps, _clock: 
     if (u.status !== 'approved' || (u.role !== 'manager' && u.role !== 'admin')) return reply.code(403).send({ error: 'forbidden' });
 
     const r = await db.query<CompanyRow>(
-      `SELECT c.id, c.name, c.status, c.manager_id, m.name AS manager_name, c.show_prices_early, c.ms_counterparty_id
+      `SELECT c.id, c.name, c.status, c.manager_id, m.name AS manager_name, c.show_prices_early, c.ms_counterparty_id, c.vat_invoice
        FROM companies c LEFT JOIN users m ON m.id = c.manager_id
        WHERE $1 = 'admin' OR c.manager_id = $2 OR c.manager_id IS NULL
        ORDER BY c.created_at DESC LIMIT 500`,
@@ -136,6 +138,25 @@ export function registerCompanyRoutes(app: FastifyInstance, deps: Deps, _clock: 
       if (taken.rows[0]) return reply.code(409).send({ error: 'counterparty_taken' });
       await db.query('UPDATE companies SET ms_counterparty_id = $2 WHERE id = $1', [id, cp.id]);
       return { ok: true, counterparty: cp };
+    },
+  );
+
+  // Клиент берёт счёт с НДС: новые заявки компании оформляются в МойСклад с НДС 5%. Менеджер клиента или админ.
+  app.patch<{ Params: { id: string }; Body: { vatInvoice: boolean } }>(
+    '/companies/:id',
+    {
+      preHandler: app.authenticate,
+      schema: { body: { type: 'object', required: ['vatInvoice'], additionalProperties: false, properties: { vatInvoice: { type: 'boolean' } } } },
+    },
+    async (req, reply) => {
+      const u = req.user!;
+      const id = parseId(req.params.id);
+      if (!id) return reply.code(404).send({ error: 'not_found' });
+      const c = await loadCompany(db, id);
+      if (!c || !canViewCompany(u, toInfo(c))) return reply.code(404).send({ error: 'not_found' });
+      if (!canApproveCompany(u, toInfo(c))) return reply.code(403).send({ error: 'forbidden' });
+      await db.query('UPDATE companies SET vat_invoice = $2 WHERE id = $1', [id, req.body.vatInvoice]);
+      return { ok: true, vatInvoice: req.body.vatInvoice };
     },
   );
 

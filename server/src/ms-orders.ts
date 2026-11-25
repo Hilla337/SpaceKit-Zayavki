@@ -9,8 +9,12 @@ export class MsPrecondition extends Error {
   }
 }
 
+/** Ставка НДС для клиентов, которые берут счёт с НДС. */
+export const VAT_INVOICE_RATE = 5;
+
 interface OrderCtx {
   ms_order_id: string | null;
+  vat_invoice: boolean;
   ms_counterparty_id: string | null;
   object_id: number | null;
   ms_project_id: string | null;
@@ -18,7 +22,7 @@ interface OrderCtx {
 
 async function loadCtx(q: Queryable, requestId: number): Promise<OrderCtx> {
   const r = await q.query<OrderCtx>(
-    `SELECT r.ms_order_id, c.ms_counterparty_id, r.object_id, o.ms_project_id
+    `SELECT r.ms_order_id, r.vat_invoice, c.ms_counterparty_id, r.object_id, o.ms_project_id
      FROM requests r JOIN companies c ON c.id = r.company_id LEFT JOIN objects o ON o.id = r.object_id
      WHERE r.id = $1`,
     [requestId],
@@ -71,8 +75,9 @@ export async function pushOrder(q: Queryable, ms: MsGateway, requestId: number):
     key: `zayavki-req-${requestId}`,
     counterpartyId: ctx.ms_counterparty_id,
     projectId,
-    description: `Заявка №${requestId} из приложения заявок SpaceKit`,
+    description: `Заявка №${requestId} из приложения заявок SpaceKit${ctx.vat_invoice ? ', счёт с НДС' : ''}`,
     positions,
+    vatRate: ctx.vat_invoice ? VAT_INVOICE_RATE : null,
   });
   await q.query('UPDATE requests SET ms_order_id = $2, ms_order_name = $3 WHERE id = $1', [requestId, order.id, order.name]);
   return order;
@@ -85,5 +90,5 @@ export async function pushDemand(q: Queryable, ms: MsGateway, requestId: number,
   const positions = await loadPositions(q, requestId, itemIds);
   // Каждую позицию можно отгрузить один раз, поэтому заявка + набор позиций однозначно задают отгрузку.
   const digest = createHash('sha256').update([...itemIds].sort((a, b) => a - b).join(',')).digest('hex').slice(0, 16);
-  return ms.createDemand({ key: `zayavki-ship-${requestId}-${digest}`, orderId: ctx.ms_order_id!, counterpartyId: ctx.ms_counterparty_id!, projectId: ctx.ms_project_id, positions });
+  return ms.createDemand({ key: `zayavki-ship-${requestId}-${digest}`, orderId: ctx.ms_order_id!, counterpartyId: ctx.ms_counterparty_id!, projectId: ctx.ms_project_id, positions, vatRate: ctx.vat_invoice ? VAT_INVOICE_RATE : null });
 }
