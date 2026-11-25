@@ -61,27 +61,48 @@ export interface MsProduct {
   code?: string;
   article?: string;
   archived?: boolean;
-  salePrices?: { value: number }[];
+  salePrices?: { value: number; priceType?: { name: string } }[];
 }
 export interface MsCounterparty { id: string; name: string; archived?: boolean }
 
-/** Обновляет каталог по товарам МойСклад. Цена в МойСклад в копейках; архивные пропускаем. Только читает МойСклад, пишет в нашу базу. */
-export async function syncCatalog(q: Queryable, products: MsProduct[]): Promise<{ upserted: number; skipped: number }> {
+/** Магазин, по которому заказчик присылает ссылки; так же он называется в позициях заявки (store). */
+export const PETROVICH = 'Петрович';
+
+const priceOf = (p: MsProduct, type: string): number | undefined => p.salePrices?.find((x) => x.priceType?.name === type)?.value;
+
+/**
+ * Код товара в Петровиче. У Spacekit поле «Код» в МойСклад у товаров из Петровича совпадает с кодом на petrovich.ru
+ * (6–7 цифр, есть «Цена Петрович»); у остальных товаров код внутренний (обычно 4 цифры). Проверено на каталоге 25.11.2026.
+ */
+export function petrovichCode(p: MsProduct): string | null {
+  return p.code && /^\d{6,7}$/.test(p.code) && (priceOf(p, 'Цена Петрович') ?? 0) > 0 ? p.code : null;
+}
+
+/**
+ * Обновляет каталог по товарам МойСклад. Цена — «Цена продажи» (в МойСклад в копейках); архивные пропускаем.
+ * Для автоподбора: товар из Петровича получает store = «Петрович» и его код, остальные — уникальный артикул.
+ * Только читает МойСклад, пишет в нашу базу.
+ */
+export async function syncCatalog(q: Queryable, products: MsProduct[]): Promise<{ upserted: number; skipped: number; petrovich: number }> {
   const live = products.filter((p) => !p.archived && p.name);
-  // Артикул нужен для автоподбора, но он должен быть уникальным; повторяющиеся не используем, чтобы не подобрать не то.
+  // Артикул должен быть уникальным; повторяющиеся не используем, чтобы не подобрать не то.
   const count = new Map<string, number>();
   for (const p of live) if (p.article) count.set(p.article, (count.get(p.article) ?? 0) + 1);
+  // Сначала снимаем коды у обновляемых товаров: если код перешёл от одного товара к другому, уникальный индекс не помешает.
+  if (live.length > 0) await q.query('UPDATE catalog SET store_code = NULL WHERE ms_id = ANY($1::text[])', [live.map((p) => p.id)]);
+  let petrovich = 0;
   for (const p of live) {
-    const code = p.article && count.get(p.article) === 1 ? p.article : null;
-    const price = (p.salePrices?.[0]?.value ?? 0) / 100;
+    const pc = petrovichCode(p);
+    if (pc) petrovich++;
+    const [store, code] = pc ? [PETROVICH, pc] : ['', p.article && count.get(p.article) === 1 ? p.article : null];
+    const price = (priceOf(p, 'Цена продажи') ?? p.salePrices?.[0]?.value ?? 0) / 100;
     await q.query(
-      `INSERT INTO catalog (ms_id, store, store_code, name, price) VALUES ($1, '', $2, $3, $4)
-       ON CONFLICT (ms_id) DO UPDATE SET name = EXCLUDED.name, price = EXCLUDED.price, updated_at = now(),
-         store_code = COALESCE(catalog.store_code, EXCLUDED.store_code)`,
-      [p.id, code, p.name, price],
+      `INSERT INTO catalog (ms_id, store, store_code, name, price) VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (ms_id) DO UPDATE SET store = EXCLUDED.store, store_code = EXCLUDED.store_code, name = EXCLUDED.name, price = EXCLUDED.price, updated_at = now()`,
+      [p.id, store, code, p.name, price],
     );
   }
-  return { upserted: live.length, skipped: products.length - live.length };
+  return { upserted: live.length, skipped: products.length - live.length, petrovich };
 }
 
 // ---------------- Запись в МойСклад ----------------

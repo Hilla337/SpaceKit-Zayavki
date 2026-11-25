@@ -80,7 +80,7 @@ async function main(): Promise<void> {
       const ms = new MoySklad(process.env.MS_TOKEN ?? '');
       const products = await ms.all<MsProduct>('/entity/product');
       const r = await db.tx((q) => syncCatalog(q, products));
-      console.log(`Каталог обновлён: ${r.upserted} позиций, пропущено архивных: ${r.skipped}`);
+      console.log(`Каталог обновлён: ${r.upserted} позиций (с кодом Петровича: ${r.petrovich}), пропущено архивных: ${r.skipped}`);
     } else if (cmd === 'ms:link-companies') {
       const ms = new MoySklad(process.env.MS_TOKEN ?? '');
       const all = (await ms.all<MsCounterparty>('/entity/counterparty')).filter((c) => !c.archived);
