@@ -15,7 +15,8 @@
     "typecheck": "tsc --noEmit",
     "test": "tsx --test test/*.test.ts",
     "cli": "node dist/cli.js",
-    "cli:dev": "tsx src/cli.ts"
+    "cli:dev": "tsx src/cli.ts",
+    "dev:memory": "tsx test/dev-server.ts"
   },
   "dependencies": {
     "fastify": "^5.0.0",

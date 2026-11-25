@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises';
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
 import { hashToken } from './auth.js';
 import type { Db } from './db.js';
@@ -64,6 +65,20 @@ export function buildApp(deps: Deps): FastifyInstance {
     if (!u || u.status === 'blocked') return reply.code(401).send({ error: 'unauthorized' });
     req.user = { id: u.id, name: u.name, phone: u.phone, role: u.role, status: u.status, companyId: u.company_id };
   });
+
+  // Интерфейс: три статических файла из web/, без сборки. API и страница на одном адресе.
+  const WEB = new URL('../web/', import.meta.url);
+  const STATIC: Record<string, [string, string]> = {
+    '/': ['index.html', 'text/html; charset=utf-8'],
+    '/app.js': ['app.js', 'text/javascript; charset=utf-8'],
+    '/app.css': ['app.css', 'text/css; charset=utf-8'],
+  };
+  for (const [path, [file, type]] of Object.entries(STATIC)) {
+    app.get(path, async (_req, reply) => {
+      reply.header('cache-control', 'no-cache').type(type);
+      return readFile(new URL(file, WEB));
+    });
+  }
 
   app.get('/health', async () => ({ ok: true }));
   app.get('/health/db', async (_req, reply) => {

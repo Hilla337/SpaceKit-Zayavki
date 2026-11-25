@@ -67,6 +67,7 @@ interface ItemRow {
   price: string | null;
   picked: boolean;
   shipped: boolean;
+  sku_name?: string | null;
 }
 
 export const companyInfo = (r: RequestRow): CompanyInfo => ({ id: r.company_id, status: r.company_status, managerId: r.manager_id });
@@ -79,7 +80,8 @@ function canSeePrices(actor: AuthedUser, r: RequestRow): boolean {
 function presentItem(i: ItemRow, staff: boolean, prices: boolean) {
   const qty = Number(i.qty);
   const price = i.price === null ? null : Number(i.price);
-  const base = { id: i.id, name: i.name, qty, unit: i.unit, note: i.note, url: i.url, store: i.store };
+  // skuName — подобранный товар из каталога: его видят все, включая сборщика (ищет на складе именно его).
+  const base = { id: i.id, name: i.name, skuName: i.sku_name ?? null, qty, unit: i.unit, note: i.note, url: i.url, store: i.store };
   const priced = prices ? { price, total: price === null ? null : Math.round(price * qty * 100) / 100 } : {};
   const internal = staff ? { storeCode: i.store_code, matchState: i.match_state, skuId: i.sku_id, picked: i.picked, shipped: i.shipped } : {};
   return { ...base, ...priced, ...internal };
@@ -219,6 +221,21 @@ export function registerRequestRoutes(app: FastifyInstance, deps: Deps): void {
     },
   );
 
+  // ---- объекты своей компании (заказчик выбирает объект из прошлых заявок) ----
+  app.get('/objects', { preHandler: app.authenticate }, async (req, reply) => {
+    const u = req.user!;
+    if (u.role !== 'customer' || u.status !== 'approved' || u.companyId === null) return reply.code(403).send({ error: 'forbidden' });
+    const r = await db.query<Record<string, string | number | null>>(
+      `SELECT id, jk, street, house, entrance, floor, apt, height_limit, lift, resp_name, resp_phone, district, parking, pass, extra_info
+       FROM objects WHERE company_id = $1 ORDER BY id DESC LIMIT 50`,
+      [u.companyId],
+    );
+    return r.rows.map((o) => ({
+      id: o.id, jk: o.jk, street: o.street, house: o.house, entrance: o.entrance, floor: o.floor, apt: o.apt, height: o.height_limit, lift: o.lift,
+      resp: o.resp_name, respPhone: o.resp_phone, district: o.district, parking: o.parking, pass: o.pass, dominfo: o.extra_info,
+    }));
+  });
+
   // ---- список заявок: что видно, зависит от роли ----
   app.get<{ Querystring: { status?: string } }>('/requests', { preHandler: app.authenticate }, async (req, reply) => {
     const u = req.user!;
@@ -291,7 +308,7 @@ export function registerRequestRoutes(app: FastifyInstance, deps: Deps): void {
 
     const staff = u.role !== 'customer';
     const prices = canSeePrices(u, r);
-    const items = await db.query<ItemRow>('SELECT * FROM request_items WHERE request_id = $1 ORDER BY id', [id]);
+    const items = await db.query<ItemRow>('SELECT i.*, c.name AS sku_name FROM request_items i LEFT JOIN catalog c ON c.id = i.sku_id WHERE i.request_id = $1 ORDER BY i.id', [id]);
     const obj = r.object_id
       ? (await db.query<Record<string, string | null>>('SELECT * FROM objects WHERE id = $1', [r.object_id])).rows[0]
       : undefined;

@@ -103,6 +103,7 @@ class FakeMs implements MsGateway {
   private fail(): void {
     if (this.failNext) { this.failNext = false; throw new MsError('МойСклад 500 на /entity/x: сбой'); }
   }
+  async searchCounterparties(q: string) { return q === 'сом' ? [{ id: 'a1b2c3d4-0000-11f1-0a80-000000000001', name: 'SOMARI (Сомари)' }] : []; }
   async getCounterparty(id: string) { return id.startsWith('00000000') ? null : { id, name: 'ООО Клиент А' }; }
   async ensureProject(p: { key: string }) {
     if (!this.projects.includes(p.key)) this.projects.push(p.key);
@@ -276,4 +277,26 @@ test('счёт с НДС: флаг у компании, заявка его на
   assert.equal((await call(phil, 'POST', `/requests/${id2}/status`, { to: 'confirm' })).statusCode, 200);
   assert.equal((await call(phil, 'POST', `/requests/${id2}/status`, { to: 'assembly' })).statusCode, 200);
   assert.equal(ms.orders.at(-1)!.vatRate, null);
+});
+
+test('интерфейс и его вспомогательные запросы: страница, объекты заказчика, поиск контрагента, название подобранного товара', async () => {
+  const page = await app.inject({ method: 'GET', url: '/' });
+  assert.equal(page.statusCode, 200);
+  assert.match(page.headers['content-type'] as string, /text\/html/);
+  assert.match(page.body, /app\.js/);
+  assert.equal((await app.inject({ method: 'GET', url: '/app.js' })).statusCode, 200);
+
+  const objs = await call(ann, 'GET', '/objects');
+  assert.equal(objs.statusCode, 200);
+  assert.ok(objs.json().length >= 1);
+  assert.equal(objs.json()[0].lift, 'грузовой');
+  assert.equal((await call(phil, 'GET', '/objects')).statusCode, 403, 'объекты — только у заказчика');
+
+  assert.deepEqual((await call(phil, 'GET', '/ms/counterparties?q=сом')).json().map((c: { name: string }) => c.name), ['SOMARI (Сомари)']);
+  assert.equal((await call(ann, 'GET', '/ms/counterparties?q=сом')).statusCode, 403);
+  assert.deepEqual((await call(phil, 'GET', '/ms/counterparties?q=с')).json(), [], 'слишком короткий запрос');
+
+  const id = (await db.query<{ id: number }>('SELECT id FROM requests ORDER BY id DESC LIMIT 1')).rows[0]!.id;
+  const items = (await call(picker, 'GET', `/requests/${id}`)).json().items ?? (await call(phil, 'GET', `/requests/${id}`)).json().items;
+  assert.equal(items[0].skuName, 'Ротбанд 30 кг');
 });

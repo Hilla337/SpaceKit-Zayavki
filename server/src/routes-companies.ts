@@ -109,6 +109,20 @@ export function registerCompanyRoutes(app: FastifyInstance, deps: Deps, _clock: 
     return { ok: true };
   });
 
+  // Поиск контрагента в МойСклад по названию, чтобы выбрать его для компании. Менеджер, админ.
+  app.get<{ Querystring: { q?: string } }>('/ms/counterparties', { preHandler: app.authenticate }, async (req, reply) => {
+    const u = req.user!;
+    if (u.status !== 'approved' || (u.role !== 'manager' && u.role !== 'admin')) return reply.code(403).send({ error: 'forbidden' });
+    if (!deps.ms) return reply.code(503).send({ error: 'moysklad_disabled' });
+    const q = (req.query.q ?? '').trim().slice(0, 100);
+    if (q.length < 2) return [];
+    try {
+      return await deps.ms.searchCounterparties(q);
+    } catch (err) {
+      return reply.code(502).send({ error: 'moysklad_failed', message: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
   // Связать компанию с контрагентом в МойСклад (на него создаются заказы и отгрузки). Менеджер клиента или админ.
   app.post<{ Params: { id: string }; Body: { msId: string } }>(
     '/companies/:id/ms-counterparty',

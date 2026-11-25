@@ -13,6 +13,7 @@ COPY package.json package-lock.json* ./
 RUN if [ -f package-lock.json ]; then npm ci --omit=dev; else npm install --omit=dev; fi
 COPY --from=build /app/dist ./dist
 COPY migrations ./migrations
+COPY web ./web
 USER node
 EXPOSE 8080
 CMD ["node", "dist/server.js"]

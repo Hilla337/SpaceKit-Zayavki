@@ -126,6 +126,8 @@ export interface MsPosition {
  */
 export interface MsGateway {
   getCounterparty(id: string): Promise<{ id: string; name: string } | null>;
+  /** Поиск контрагентов по названию (для выбора в интерфейсе). */
+  searchCounterparties(q: string): Promise<{ id: string; name: string }[]>;
   ensureProject(p: { key: string; name: string; fields: ObjectFields }): Promise<string>;
   createOrder(o: { key: string; counterpartyId: string; projectId: string | null; description: string; positions: MsPosition[]; vatRate: number | null }): Promise<{ id: string; name: string }>;
   createDemand(d: { key: string; orderId: string; counterpartyId: string; projectId: string | null; positions: MsPosition[]; vatRate: number | null }): Promise<{ id: string; name: string }>;
@@ -187,6 +189,11 @@ export class MsWriter implements MsGateway {
       if (err instanceof MsError && /404/.test(err.message)) return null;
       throw err;
     }
+  }
+
+  async searchCounterparties(q: string): Promise<{ id: string; name: string }[]> {
+    const r = await this.ms.get<{ rows: { id: string; name: string; archived?: boolean }[] }>(`/entity/counterparty?search=${encodeURIComponent(q)}&limit=20`);
+    return r.rows.filter((c) => !c.archived).map((c) => ({ id: c.id, name: c.name }));
   }
 
   async ensureProject(p: { key: string; name: string; fields: ObjectFields }): Promise<string> {
