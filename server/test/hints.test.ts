@@ -95,3 +95,16 @@ test('подсказку нельзя привязать к не менедже�
     /role manager/,
   );
 });
+
+test('приблизительные совпадения: только целыми словами и не по коротким названиям', async () => {
+  await loadHints(db, [['Дмитрий Барбарасов', 'Горелышев'], ['Татьяна Чех', 'Траст ремонт']]);
+  const [gor, as, full] = (await db.query<{ id: number }>(
+    `INSERT INTO companies (name) VALUES ('Гор'), ('ООО "АС+"'), ('ИП Горелышев Александр') RETURNING id`,
+  )).rows.map((r) => r.id);
+  const sug = await suggestHints(db);
+  assert.ok(!sug.some((s) => s.companyId === gor || s.companyId === as));
+  assert.ok(sug.some((s) => s.companyId === full && s.managerName === 'Дмитрий Барбарасов'));
+  // Кусок слова не считается: «Траст» не похоже на «Трастремонтстрой».
+  const [glued] = (await db.query<{ id: number }>(`INSERT INTO companies (name) VALUES ('Трастремонтстрой') RETURNING id`)).rows.map((r) => r.id);
+  assert.ok(!(await suggestHints(db)).some((s) => s.companyId === glued));
+});

@@ -76,7 +76,7 @@ export async function applyHints(q: Queryable): Promise<{ companyId: number; nam
 
 /**
  * Приблизительные совпадения для проверки человеком. Ничего не меняет.
- * Короткие подсказки (меньше 4 букв) не предлагаем: слишком много случайных совпадений.
+ * Сравниваем целыми словами; короткие названия (меньше 4 букв) не предлагаем: слишком много случайных совпадений.
  */
 export async function suggestHints(q: Queryable): Promise<{ companyId: number; name: string; hint: string; managerName: string }[]> {
   const free = await q.query<{ id: number; name: string }>('SELECT id, name FROM companies WHERE manager_id IS NULL ORDER BY id');
@@ -87,8 +87,11 @@ export async function suggestHints(q: Queryable): Promise<{ companyId: number; n
   for (const c of free.rows) {
     const norm = normalizeName(c.name);
     for (const h of hints.rows) {
-      if (h.hint_norm.length < 4 || norm === h.hint_norm) continue;
-      if (norm.includes(h.hint_norm) || h.hint_norm.includes(norm)) out.push({ companyId: c.id, name: c.name, hint: h.hint, managerName: h.name });
+      if (norm === h.hint_norm) continue;
+      // Совпадение целыми словами, и более короткое из названий не короче 4 букв: «Гор» не похоже на «Горелышев», «АС+» не похоже на «Рашид Гасайниев».
+      const [short, long] = norm.length <= h.hint_norm.length ? [norm, h.hint_norm] : [h.hint_norm, norm];
+      if (short.length < 4 || !` ${long} `.includes(` ${short} `)) continue;
+      out.push({ companyId: c.id, name: c.name, hint: h.hint, managerName: h.name });
     }
   }
   return out;
