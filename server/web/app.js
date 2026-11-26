@@ -24,7 +24,7 @@ var ERR = {
   object_not_found: 'Объект не найден', already_assigned: 'Клиента уже взял другой менеджер', no_counterparty: 'У компании не выбран контрагент в МойСклад',
   item_not_in_catalog: 'Есть позиции без товара из МойСклад', moysklad_failed: 'МойСклад ответил ошибкой', moysklad_disabled: 'МойСклад не подключён',
   counterparty_not_found: 'Контрагент не найден', counterparty_taken: 'Этот контрагент уже связан с другой компанией', order_created: 'Заказ уже создан в МойСклад, меняйте там',
-  empty: 'Пустое сообщение',
+  empty: 'Пустое сообщение', bad_line: 'Строка без «;» — нужно «менеджер;клиент»', bad_hints: 'Ошибка в списке',
 };
 
 // ---------- состояние ----------
@@ -104,6 +104,32 @@ function resetCode(userId, name) {
         }
       });
     }).catch(fail);
+  });
+}
+function staffAdd() {
+  var bg = document.createElement('div'); bg.className = 'modal-bg';
+  bg.innerHTML = '<div class="modal"><h1 style="font-size:19px;margin:0 0 10px">Новый сотрудник</h1>' +
+    '<div class="f"><label>Роль</label><select id="saRole"><option value="manager">Менеджер</option><option value="admin">Админ</option><option value="picker">Сборщик</option></select></div>' +
+    '<div class="f"><label>Имя и фамилия</label><input id="saName" autocomplete="off"></div>' +
+    '<div class="f"><label>Телефон</label><input id="saPhone" type="tel" placeholder="+7 999 123-45-67"></div>' +
+    '<p class="xs">Пароль сотрудник задаст сам: после добавления нажмите «Код для пароля» и отправьте ему код.</p>' +
+    '<div class="btns" style="justify-content:flex-end"><button class="btn" id="saNo">Отмена</button><button class="btn pri" id="saYes">Добавить</button></div></div>';
+  document.body.appendChild(bg); $('saName').focus();
+  bg.addEventListener('click', function (e) {
+    if (e.target === bg || e.target.id === 'saNo') return bg.remove();
+    if (e.target.id !== 'saYes') return;
+    var b = { role: $('saRole').value, name: $('saName').value.trim(), phone: $('saPhone').value.trim() };
+    if (!b.name || !b.phone) return toast('Заполните имя и телефон', true);
+    api('POST', '/staff', b).then(function () { bg.remove(); toast('Сотрудник добавлен'); viewCompanies(); }).catch(fail);
+  });
+}
+function hintsLoad() {
+  return ask('Список «менеджер;клиент»', { text: 'По строке на клиента: имя менеджера, точка с запятой, название клиента. Например: «Татьяна Чех;Левар». Клиенты с точно совпадающим названием сразу попадут к своему менеджеру.', input: 'Филипп Инилеев;Профит рум', ok: 'Загрузить' }).then(function (text) {
+    if (!text) return;
+    return api('POST', '/hints', { text: text }).then(function (r) {
+      var msg = 'Сохранено строк: ' + r.saved + '. Сразу назначено клиентов: ' + r.assigned.length + '.' + (r.suggestions.length ? ' Похожих названий для ручной проверки: ' + r.suggestions.length + '.' : '');
+      return ask('Список загружен', { text: msg + (r.suggestions.length ? ' ' + r.suggestions.slice(0, 8).map(function (x) { return '«' + x.name + '» ← ' + x.hint + ' (' + x.managerName + ')'; }).join('; ') : ''), ok: 'Хорошо', cancel: 'Закрыть' });
+    }).then(function () { viewCompanies(); }).catch(function (e) { fail(e.data && e.data.message ? new Error(e.data.message) : e); });
   });
 }
 function coPeople(companyId) {
@@ -832,7 +858,13 @@ function renderCompanies() {
       (own ? '<div class="pick" style="margin-top:8px"><input class="inp" data-cp="' + c.id + '" placeholder="' + (c.msCounterpartyId ? 'Сменить контрагента МойСклад…' : 'Найти контрагента в МойСклад…') + '" autocomplete="off"><div id="cp' + c.id + '"></div></div>' : '') +
       (acts.length ? '<div class="btns" style="margin-top:8px;align-items:center">' + acts.join('') + '</div>' : '') + '<div id="people' + c.id + '"></div></div>';
   }).join('') : '<div class="empty">Здесь пусто</div>';
-  if (me.role === 'admin' && S.staff) h += '</div><h2>Сотрудники</h2><div class="card">' + S.staff.map(function (u) { return '<div class="row" style="padding:5px 0"><span class="sp">' + esc(u.name) + ' <span class="xs">' + esc(ROLE[u.role] || u.role) + ' · ' + esc(u.phone || 'без телефона') + (u.hasPassword ? '' : ' · <span class="tag warn">пароль не задан</span>') + '</span></span>' + (u.phone && u.id !== me.id ? '<button class="btn sm" data-act="resetCode" data-id="' + u.id + '" data-name="' + esc(u.name) + '">Код для пароля</button>' : '') + '</div>'; }).join('') + '</div><div>';
+  if (me.role === 'admin' && S.staff) {
+    h += '</div><h2>Сотрудники</h2><div class="card">' + S.staff.map(function (u) {
+      return '<div class="row" style="padding:5px 0;flex-wrap:wrap"><span class="sp">' + esc(u.name) + ' <span class="xs">' + esc(ROLE[u.role] || u.role) + ' · ' + (u.phone ? esc(u.phone) : '<span class="tag warn">нет телефона</span>') + (u.phone && !u.hasPassword ? ' · <span class="tag warn">пароль не задан</span>' : '') + '</span></span>' +
+        (u.id !== me.id ? '<button class="btn sm" data-act="staffPhone" data-id="' + u.id + '" data-name="' + esc(u.name) + '">' + (u.phone ? 'Сменить телефон' : 'Задать телефон') + '</button>' : '') +
+        (u.phone && u.id !== me.id ? '<button class="btn sm" data-act="resetCode" data-id="' + u.id + '" data-name="' + esc(u.name) + '">Код для пароля</button>' : '') + '</div>';
+    }).join('') + '<div class="btns"><button class="btn sm pri" data-act="staffAdd">+ Сотрудник</button><button class="btn sm" data-act="hintsLoad">Список «менеджер;клиент»</button></div></div><div>';
+  }
   $('app').innerHTML = h + '</div></div>';
 }
 var cpT;
@@ -866,6 +898,9 @@ document.addEventListener('click', function (ev) {
     case 'demoLogin': return window.SK_DEMO.login(el.getAttribute('data-phone'));
     case 'logout': return logout();
     case 'changePass': return changePass();
+    case 'staffPhone': return ask('Телефон: ' + el.getAttribute('data-name'), { input: '+7 999 123-45-67', ok: 'Сохранить' }).then(function (v) { if (v) return api('PATCH', '/staff/' + id, { phone: v }).then(function () { toast('Телефон сохранён. Теперь выдайте код для пароля'); viewCompanies(); }).catch(fail); });
+    case 'staffAdd': return staffAdd();
+    case 'hintsLoad': return hintsLoad();
     case 'coPeople': return coPeople(id);
     case 'resetCode': return resetCode(id, el.getAttribute('data-name'));
     case 'reloadMe': S.me = null; return boot();

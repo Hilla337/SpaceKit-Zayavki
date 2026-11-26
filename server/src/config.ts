@@ -29,4 +29,6 @@ export const config = {
   msOrganizationId: process.env.MS_ORGANIZATION_ID ?? '',
   msStoreId: process.env.MS_STORE_ID ?? '',
   msOrderState: process.env.MS_ORDER_STATE ?? 'Готов к сборке',
+  /** Каталог из МойСклад (только чтение) раз в N часов, если задан MS_TOKEN. 0 — выключено. */
+  msSyncHours: Number(process.env.MS_SYNC_HOURS ?? 0),
 };

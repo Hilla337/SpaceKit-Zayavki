@@ -2,6 +2,8 @@ import type { FastifyInstance } from 'fastify';
 import { canApproveCompany, canClaimCompany, canReassignCompany, canViewCompany } from './access.js';
 import type { Deps } from './app.js';
 import type { Queryable } from './db.js';
+import { normalizePhone } from './auth.js';
+import { applyHints, loadHints, suggestHints } from './hints.js';
 import { notifyCustomers } from './services.js';
 import type { AccountStatus, CompanyInfo } from './types.js';
 
@@ -194,6 +196,80 @@ export function registerCompanyRoutes(app: FastifyInstance, deps: Deps, _clock: 
     );
     return r.rows.map((x) => ({ id: x.id, name: x.name, phone: x.phone, role: x.role, hasPassword: x.has_password }));
   });
+
+  // Добавить сотрудника (менеджера, сборщика, админа). Только админ. Пароль сотрудник задаст по коду сброса.
+  app.post<{ Body: { role: 'manager' | 'picker' | 'admin'; name: string; phone: string } }>(
+    '/staff',
+    {
+      preHandler: app.authenticate,
+      schema: {
+        body: {
+          type: 'object',
+          required: ['role', 'name', 'phone'],
+          additionalProperties: false,
+          properties: { role: { type: 'string', enum: ['manager', 'picker', 'admin'] }, name: { type: 'string', minLength: 1, maxLength: 120 }, phone: { type: 'string', maxLength: 40 } },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!canReassignCompany(req.user!)) return reply.code(403).send({ error: 'forbidden' });
+      const phone = normalizePhone(req.body.phone);
+      if (!phone) return reply.code(400).send({ error: 'bad_phone' });
+      if ((await db.query('SELECT 1 FROM users WHERE phone = $1', [phone])).rows[0]) return reply.code(409).send({ error: 'phone_taken' });
+      const r = await db.query<{ id: number }>(`INSERT INTO users (phone, name, role, status) VALUES ($1, $2, $3::user_role, 'approved') RETURNING id`, [phone, req.body.name.trim(), req.body.role]);
+      return reply.code(201).send({ id: r.rows[0]!.id });
+    },
+  );
+
+  // Телефон сотрудника (например, у четырёх менеджеров из начальных данных его нет). Только админ.
+  app.patch<{ Params: { id: string }; Body: { phone: string } }>(
+    '/staff/:id',
+    {
+      preHandler: app.authenticate,
+      schema: { body: { type: 'object', required: ['phone'], additionalProperties: false, properties: { phone: { type: 'string', maxLength: 40 } } } },
+    },
+    async (req, reply) => {
+      if (!canReassignCompany(req.user!)) return reply.code(403).send({ error: 'forbidden' });
+      const id = parseId(req.params.id);
+      const phone = normalizePhone(req.body.phone);
+      if (!id) return reply.code(404).send({ error: 'not_found' });
+      if (!phone) return reply.code(400).send({ error: 'bad_phone' });
+      if ((await db.query('SELECT 1 FROM users WHERE phone = $1 AND id <> $2', [phone, id])).rows[0]) return reply.code(409).send({ error: 'phone_taken' });
+      const r = await db.query(`UPDATE users SET phone = $2 WHERE id = $1 AND role <> 'customer' RETURNING id`, [id, phone]);
+      if (!r.rows[0]) return reply.code(404).send({ error: 'not_found' });
+      return { ok: true };
+    },
+  );
+
+  // Список «менеджер;клиент» вставкой текста (то же, что clients:load-hints + clients:apply-hints). Только админ.
+  app.post<{ Body: { text: string } }>(
+    '/hints',
+    {
+      preHandler: app.authenticate,
+      schema: { body: { type: 'object', required: ['text'], additionalProperties: false, properties: { text: { type: 'string', maxLength: 200000 } } } },
+    },
+    async (req, reply) => {
+      if (!canReassignCompany(req.user!)) return reply.code(403).send({ error: 'forbidden' });
+      const lines = req.body.text.split(/\r?\n/).map((l) => l.trim()).filter((l) => l && !l.startsWith('#'));
+      const pairs: [string, string][] = [];
+      for (const l of lines) {
+        const i = l.indexOf(';');
+        if (i < 1) return reply.code(422).send({ error: 'bad_line', line: l });
+        pairs.push([l.slice(0, i).trim(), l.slice(i + 1).trim()]);
+      }
+      try {
+        const out = await db.tx(async (q) => {
+          const { saved } = await loadHints(q, pairs);
+          const assigned = await applyHints(q);
+          return { saved, assigned };
+        });
+        return { ...out, suggestions: await suggestHints(db) };
+      } catch (err) {
+        // Ошибка в списке (например, неизвестный менеджер): ничего не сохраняется, человеку — понятный текст.
+        return reply.code(422).send({ error: 'bad_hints', message: err instanceof Error ? err.message : String(err) });
+      }
+    },
+  );
 
   // Менеджеры, на которых можно переназначить клиента. Только админ.
   app.get('/staff/managers', { preHandler: app.authenticate }, async (req, reply) => {

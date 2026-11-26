@@ -16,4 +16,5 @@ COPY migrations ./migrations
 COPY web ./web
 USER node
 EXPOSE 8080
-CMD ["node", "dist/server.js"]
+# Сначала миграции (повторяем, пока база не поднимется), потом сервер.
+CMD ["sh", "-c", "until node dist/migrate.js; do echo 'жду базу…'; sleep 3; done; exec node dist/server.js"]
