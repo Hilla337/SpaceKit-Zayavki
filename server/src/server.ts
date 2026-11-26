@@ -2,7 +2,8 @@ import { buildApp } from './app.js';
 import { ensureBootstrapAdmin } from './bootstrap.js';
 import { config } from './config.js';
 import { createPgDb } from './db.js';
-import { MoySklad, MsWriter, syncCatalog, type MsProduct } from './moysklad.js';
+import { MoySklad, MsReader, MsWriter, syncCatalog, syncStock, type MsProduct, type MsStockRow } from './moysklad.js';
+import { webhookSecret } from './ms-webhook.js';
 import { startPushWorker, vapidKeys, WebPushSender } from './push.js';
 import { ConsoleSmsSender, startSmsWorker } from './sms.js';
 
@@ -14,7 +15,8 @@ const db = createPgDb(config.databaseUrl);
 const ms = config.msWrite
   ? new MsWriter(new MoySklad(process.env.MS_TOKEN ?? ''), { organizationId: config.msOrganizationId, storeId: config.msStoreId, orderState: config.msOrderState })
   : undefined;
-const app = buildApp({ db, pepper: config.authPepper, logger: true, trustProxy: config.trustProxyHops, ms });
+const msEvents = process.env.MS_TOKEN && config.msWebhooks ? new MsReader(new MoySklad(process.env.MS_TOKEN)) : undefined;
+const app = buildApp({ db, pepper: config.authPepper, logger: true, trustProxy: config.trustProxyHops, ms, msDemands: config.msDemands, msEvents });
 app.log.info(ms ? 'МойСклад: запись включена' : 'МойСклад: запись выключена (MS_WRITE не равен 1)');
 
 if (config.smsProvider === 'console') {
@@ -22,10 +24,10 @@ if (config.smsProvider === 'console') {
   app.addHook('onClose', async () => stopSms());
 }
 
-// Каталог из МойСклад: только чтение, при запуске и затем раз в MS_SYNC_HOURS часов.
+// Каталог и остатки из МойСклад: только чтение. Каталог — при запуске и раз в MS_SYNC_HOURS часов, остатки — раз в MS_STOCK_MINUTES минут.
 if (config.msSyncHours > 0 && process.env.MS_TOKEN) {
   const reader = new MoySklad(process.env.MS_TOKEN);
-  const sync = async () => {
+  const syncAll = async () => {
     try {
       const products = await reader.all<MsProduct>('/entity/product');
       const r = await db.tx((q) => syncCatalog(q, products));
@@ -33,11 +35,31 @@ if (config.msSyncHours > 0 && process.env.MS_TOKEN) {
     } catch (err) {
       app.log.error({ err }, 'не удалось обновить каталог из МойСклад');
     }
+    await stock();
   };
-  setTimeout(sync, 5_000).unref();
-  const timer = setInterval(sync, config.msSyncHours * 3600_000);
-  timer.unref();
-  app.addHook('onClose', async () => clearInterval(timer));
+  const stock = async () => {
+    try {
+      const store = config.msStoreId ? `&filter=store=https://api.moysklad.ru/api/remap/1.2/entity/store/${config.msStoreId}` : '';
+      const rows = await reader.all<MsStockRow>('/report/stock/all', store);
+      const r = await db.tx((q) => syncStock(q, rows));
+      app.log.info(`остатки МойСклад: ${r.updated} товаров в наличии`);
+    } catch (err) {
+      app.log.error({ err }, 'не удалось обновить остатки из МойСклад');
+    }
+  };
+  setTimeout(syncAll, 5_000).unref();
+  const t1 = setInterval(syncAll, config.msSyncHours * 3600_000);
+  const t2 = config.msStockMinutes > 0 ? setInterval(stock, config.msStockMinutes * 60_000) : undefined;
+  t1.unref(); t2?.unref();
+  app.addHook('onClose', async () => { clearInterval(t1); if (t2) clearInterval(t2); });
+}
+
+// Обратная связь из МойСклад: подписываем его на события по адресу приложения (повторно не дублирует).
+if (msEvents && config.appUrl) {
+  const url = `${config.appUrl.replace(/\/$/, '')}/ms/webhook/${webhookSecret(config.authPepper)}`;
+  new MsReader(new MoySklad(process.env.MS_TOKEN!)).ensureWebhooks(url)
+    .then((r) => app.log.info(`вебхуки МойСклад: создано ${r.created}, уже были ${r.existing}`))
+    .catch((err) => app.log.error({ err }, 'не удалось подписать МойСклад на события (нужен токен администратора МойСклад)'));
 }
 
 // Push-уведомления в браузер: ключи VAPID берутся из базы (создаются при первом запуске).

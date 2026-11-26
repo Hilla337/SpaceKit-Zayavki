@@ -28,10 +28,18 @@ services:
       BOOTSTRAP_ADMIN_PHONE: __ADMIN_PHONE__
       BOOTSTRAP_ADMIN_PASSWORD: __ADMIN_PASSWORD__
       BOOTSTRAP_ADMIN_NAME: __ADMIN_NAME__
-      # Каталог из МойСклад только читается; запись (заказы, отгрузки) на стенде выключена.
+      # МойСклад на стенде: каталог и остатки читаются; заказы создаются в статусе «Тест :3», чтобы их было
+      # легко отличить и удалить; отгрузки в МойСклад из стенда не создаются (не списываем настоящие остатки);
+      # отгрузки и статусы заказов из МойСклад возвращаются в приложение через вебхуки.
       MS_TOKEN: __MS_TOKEN__
       MS_SYNC_HOURS: __MS_SYNC_HOURS__
-      MS_WRITE: '0'
+      MS_STOCK_MINUTES: '15'
+      MS_WRITE: __MS_WRITE__
+      MS_ORDER_STATE: 'Тест :3'
+      MS_DEMANDS: '0'
+      MS_WEBHOOKS: __MS_WRITE__
+      MS_ORGANIZATION_ID: '6b6f7a0f-77aa-11f0-0a80-1726002d9376'
+      MS_STORE_ID: '6b7181fb-77aa-11f0-0a80-1726002d9379'
 
   caddy:
     image: caddy:2-alpine

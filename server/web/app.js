@@ -475,7 +475,13 @@ function normUnit(u) {
 }
 function parseLink(u) {
   var m;
-  if (/petrovich\.ru/i.test(u)) { m = u.match(/\/product\/(\d+)/); return { store: 'Петрович', code: m ? m[1] : '' }; }
+  if (/petrovich\.ru/i.test(u)) {
+    // Корзину по ссылке прочитать нельзя (сайт запрещает автоматический доступ) — помечаем, чтобы предупредить заказчика.
+    if (/\/(cart|basket|korzina)\b|[?&](share|cart)=/i.test(u)) return { store: 'Петрович', code: '', cart: true };
+    // Код товара: /product/155351, /catalog/…/155351/ или ?code=155351 — последний числовой кусок из 5–8 цифр.
+    m = u.match(/\/product\/(\d{4,9})/) || u.match(/[?&](?:code|product|id)=(\d{4,9})/) || u.split(/[?#]/)[0].match(/\/(\d{5,8})\/?$/);
+    return { store: 'Петрович', code: m ? m[1] : '' };
+  }
   if (/leroymerlin\.ru/i.test(u)) { m = u.match(/-(\d{6,})\/?(?:[?#].*)?$/) || u.match(/\/(\d{6,})\/?(?:[?#].*)?$/); return { store: 'Леруа Мерлен', code: m ? m[1] : '' }; }
   if (/vseinstrumenti\.ru/i.test(u)) { m = u.match(/-(\d{5,})\/?(?:[?#].*)?$/) || u.match(/\/(\d{5,})\/?(?:[?#].*)?$/); return { store: 'ВсеИнструменты', code: m ? m[1] : '' }; }
   return { store: 'Другой', code: '' };
@@ -486,9 +492,12 @@ function parseLine(l) {
   var url = (l.match(/https?:\/\/\S+/) || [])[0], p = url ? parseLink(url) : { store: '', code: '' }, rest = url ? l.replace(url, '').trim() : l;
   var m = rest.match(/^(.*?)[\s,;:—–\-x×*]*(\d+(?:[.,]\d+)?)\s*([а-яё²2.\s]{0,10})$/i), name = rest, qty = 1, unit = 'шт';
   if (m && (m[3].trim() === '' || UNIT_RX.test(m[3].trim()))) { name = m[1].replace(/[\s,;:—–\-]+$/, '').trim(); qty = parseFloat(m[2].replace(',', '.')); unit = normUnit(m[3]); }
+  if (!name && p.cart) name = 'Корзина Петровича по ссылке — список уточнит менеджер';
   if (!name && p.code) name = 'Товар ' + p.store + ', код ' + p.code;
+  // Ссылку без названия не теряем: менеджер откроет её и подберёт товар сам.
+  if (!name && url) name = 'Товар по ссылке' + (p.store && p.store !== 'Другой' ? ' (' + p.store + ')' : '');
   if (!name) return null;
-  return { name: name, qty: qty || 1, unit: unit, url: url || '', store: p.store, code: p.code };
+  return { name: name, qty: qty || 1, unit: unit, url: url || '', store: p.store, code: p.code, cart: !!p.cart };
 }
 
 function submitNew() {
@@ -498,6 +507,7 @@ function submitNew() {
     if (i.url) x.url = i.url.slice(0, 1000);
     if (i.store) x.store = i.store;
     if (i.code) x.code = i.code;
+    if (i.note) x.note = String(i.note).slice(0, 500);
     return x;
   });
   if (!items.length) return toast('Добавьте хотя бы одну позицию', true);
@@ -592,6 +602,8 @@ function itemEditor(it) {
     '<div class="xs" style="margin-top:4px">' + (ok ? ic('check', 'sm') + ' ' + esc(it.skuName || 'подобран товар из каталога') + (it.price ? ' · сумма ' + money(it.total) : ' · поставьте цену') : 'не подобран') + '</div></div>';
 }
 
+// остаток на складе (из МойСклад, обновляется раз в 15 минут)
+function stockTag(st) { if (st === null || st === undefined) return ''; return st > 0 ? ' <span class="tag ok">в наличии ' + qtyFmt(st) + '</span>' : ' <span class="tag warn">нет на складе</span>'; }
 // поиск по каталогу с задержкой
 var catT;
 function catalogSearch(input) {
@@ -601,7 +613,7 @@ function catalogSearch(input) {
   catT = setTimeout(function () {
     api('GET', '/catalog?q=' + encodeURIComponent(q)).then(function (l) {
       var box = $('dd' + id); if (!box) return;
-      box.innerHTML = l.length ? '<div class="dd">' + l.map(function (c) { return '<div data-act="pickSku" data-item="' + id + '" data-sku="' + c.id + '">' + esc(c.name) + ' <span class="xs">' + money(c.price) + (c.storeCode ? ' · ' + esc(c.storeCode) : '') + '</span></div>'; }).join('') + '</div>' : '<div class="dd"><div class="xs">Ничего не нашлось</div></div>';
+      box.innerHTML = l.length ? '<div class="dd">' + l.map(function (c) { return '<div data-act="pickSku" data-item="' + id + '" data-sku="' + c.id + '">' + esc(c.name) + ' <span class="xs">' + money(c.price) + (c.storeCode ? ' · ' + esc(c.storeCode) : '') + '</span>' + stockTag(c.stock) + '</div>'; }).join('') + '</div>' : '<div class="dd"><div class="xs">Ничего не нашлось</div></div>';
     }).catch(fail);
   }, 250);
 }
@@ -1030,9 +1042,13 @@ document.addEventListener('click', function (ev) {
     case 'pickObj': S.draft.objectId = el.value ? Number(el.value) : null; return renderNew();
     case 'parseItems': {
       var text = $('itemsText').value; S.draft.text = text;
-      var parsed = text.split(/\n+/).map(parseLine).filter(Boolean);
+      var rows = text.split(/\n+/).filter(function (l) { return l.trim(); });
+      var parsed = rows.map(parseLine).filter(Boolean);
       if (!parsed.length) return toast('Не нашёл позиций в тексте', true);
-      S.draft.items = S.draft.items.concat(parsed); S.draft.text = ''; renderNew(); return toast('Добавлено позиций: ' + parsed.length);
+      S.draft.items = S.draft.items.concat(parsed.map(function (x) { var y = Object.assign({}, x); delete y.cart; if (x.cart) y.note = 'Ссылка на корзину: ' + x.url; return y; }));
+      S.draft.text = ''; renderNew();
+      if (parsed.some(function (x) { return x.cart; })) return ask('Корзину по ссылке прочитать нельзя', { text: 'Сайт Петровича не разрешает приложениям открывать корзины. Лучше откройте корзину, выделите и скопируйте список товаров и вставьте его сюда — так все позиции попадут в заявку. Ссылку мы сохранили: менеджер сможет открыть её сам.', ok: 'Понятно', cancel: 'Закрыть' });
+      return toast('Добавлено позиций: ' + parsed.length + (rows.length > parsed.length ? '. Пустые строки пропущены' : ''));
     }
     case 'addItem': S.draft.text = ($('itemsText') || {}).value || S.draft.text; S.draft.items.push({ name: '', qty: 1, unit: 'шт' }); return renderNew();
     case 'delItem': S.draft.items.splice(Number(el.getAttribute('data-i')), 1); return renderNew();

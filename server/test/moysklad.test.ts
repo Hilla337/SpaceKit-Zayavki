@@ -69,3 +69,24 @@ test('синхронизация: товар Петровича подбирае
     assert.deepEqual(moved.rows.map((x) => x.ms_id), ['c']);
   } finally { await db.close(); }
 });
+
+test('MsReader: отгрузка разбирается в заказ и товары; вебхуки создаются только недостающие', async () => {
+  const { MsReader } = await import('../src/moysklad.js');
+  const B = 'https://api.moysklad.ru/api/remap/1.2/entity';
+  const posts: any[] = [];
+  const f = (async (url: string, init: RequestInit) => {
+    const u = new URL(url);
+    if (init.method === 'POST') { posts.push(JSON.parse(String(init.body))); return Response.json({}); }
+    if (u.pathname.endsWith('/entity/webhook')) return Response.json({ rows: [{ url: 'https://app/ms/webhook/s', entityType: 'demand', action: 'CREATE' }] });
+    if (u.pathname.includes('/entity/demand/')) {
+      return Response.json({ id: 'd1', name: '01980', applicable: true, customerOrder: { meta: { href: `${B}/customerorder/o1` } },
+        positions: { rows: [{ quantity: 2, assortment: { meta: { href: `${B}/product/p1?expand=x`, type: 'product' } } }, { quantity: 1, assortment: { meta: { href: `${B}/service/s1`, type: 'service' } } }] } });
+    }
+    return Response.json({}, { status: 404 });
+  }) as unknown as typeof fetch;
+  const r = new MsReader(new MoySklad('T', f, 1));
+  assert.deepEqual(await r.getDemand('d1'), { id: 'd1', name: '01980', applicable: true, orderId: 'o1', positions: [{ productId: 'p1', qty: 2 }] });
+  assert.equal(await r.getOrderState('нет'), null, 'удалённый заказ — без ошибки');
+  assert.deepEqual(await r.ensureWebhooks('https://app/ms/webhook/s'), { created: 2, existing: 1 });
+  assert.deepEqual(posts.map((p) => [p.entityType, p.action]), [['demand', 'UPDATE'], ['customerorder', 'UPDATE']]);
+});

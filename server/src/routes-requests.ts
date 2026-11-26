@@ -554,10 +554,11 @@ export function registerRequestRoutes(app: FastifyInstance, deps: Deps): void {
     const u = req.user!;
     if (u.status !== 'approved' || (u.role !== 'manager' && u.role !== 'admin')) return reply.code(403).send({ error: 'forbidden' });
     const term = (req.query.q ?? '').trim().slice(0, 100).replace(/[\\%_]/g, (m) => `\\${m}`);
-    const r = await db.query<{ id: number; store: string; store_code: string | null; name: string; price: string }>(
-      `SELECT id, store, store_code, name, price FROM catalog WHERE name ILIKE $1 ORDER BY name LIMIT 30`,
+    const r = await db.query<{ id: number; store: string; store_code: string | null; name: string; price: string; stock: string | null }>(
+      // Сначала то, что есть в наличии, потом остальное.
+      `SELECT id, store, store_code, name, price, stock FROM catalog WHERE name ILIKE $1 ORDER BY (stock > 0) DESC NULLS LAST, name LIMIT 30`,
       [`%${term}%`],
     );
-    return r.rows.map((c) => ({ id: c.id, store: c.store, storeCode: c.store_code, name: c.name, price: Number(c.price) }));
+    return r.rows.map((c) => ({ id: c.id, store: c.store, storeCode: c.store_code, name: c.name, price: Number(c.price), stock: c.stock === null ? null : Number(c.stock) }));
   });
 }

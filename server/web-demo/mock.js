@@ -237,7 +237,7 @@
     ['GET', /^\/catalog$/, function (q, u) {
       if (u.role !== 'manager' && u.role !== 'admin') throw E(403, 'forbidden');
       var t = (q.query.get('q') || '').toLowerCase();
-      return D.catalog.filter(function (c) { return c.name.toLowerCase().indexOf(t) >= 0; }).slice(0, 30).map(function (c) { return { id: c.id, store: c.store, storeCode: c.code, name: c.name, price: c.price }; });
+      return D.catalog.filter(function (c) { return c.name.toLowerCase().indexOf(t) >= 0; }).slice(0, 30).map(function (c) { return { id: c.id, store: c.store, storeCode: c.code, name: c.name, price: c.price, stock: c.id % 4 === 0 ? 0 : (c.id * 7) % 40 + 2 }; });
     }],
     ['GET', /^\/requests$/, function (q, u) {
       if (u.status !== 'approved') throw E(403, 'forbidden');

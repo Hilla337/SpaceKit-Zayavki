@@ -106,7 +106,7 @@ jobs:
           export STAND_DB_PASSWORD="$DB_PASSWORD" STAND_AUTH_PEPPER="$AUTH_PEPPER"
           export STAND_DATABASE_URL="postgres://zayavki:$DB_PASSWORD@db:5432/zayavki"
           export STAND_ADMIN_NAME="${STAND_ADMIN_NAME:-Администратор}"
-          if [ -n "$STAND_MS_TOKEN" ]; then export STAND_MS_SYNC_HOURS=6; else export STAND_MS_SYNC_HOURS=0; fi
+          if [ -n "$STAND_MS_TOKEN" ]; then export STAND_MS_SYNC_HOURS=6 STAND_MS_WRITE=1; else export STAND_MS_SYNC_HOURS=0 STAND_MS_WRITE=0; fi
           umask 077
           python3 deploy/stand/render.py deploy/stand/docker-compose.yml "$RUNNER_TEMP/compose.yml"
           echo "docker-compose готов (содержимое не выводится: в нём секреты)"

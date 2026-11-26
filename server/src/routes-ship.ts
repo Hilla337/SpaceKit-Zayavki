@@ -61,7 +61,7 @@ export function registerShipRoutes(app: FastifyInstance, deps: Deps): void {
 
         let shipmentId: number;
         let number: string;
-        if (deps.ms) {
+        if (deps.ms && deps.msDemands !== false) {
           // Отгрузка в МойСклад на основании заказа; номер берём оттуда. Не получилось — в приложении ничего не меняется.
           let demand: { id: string; name: string };
           try {

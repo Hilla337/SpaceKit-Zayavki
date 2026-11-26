@@ -252,3 +252,92 @@ export class MsWriter implements MsGateway {
     return { id: created.id, name: created.name };
   }
 }
+
+// ---------------- Остатки и обратная связь из МойСклад ----------------
+
+const idFromHref = (href: string | undefined): string | null => (href ? (href.split('?')[0]!.split('/').pop() ?? null) : null);
+
+export interface MsStockRow { meta: { href: string; type: string }; quantity?: number; stock?: number }
+
+/**
+ * Остатки в каталог: «доступно» (остаток минус резерв) по складу. МойСклад отдаёт только ненулевые,
+ * поэтому сначала всем ставим 0, потом проставляем пришедшие. Одной транзакцией.
+ */
+export async function syncStock(q: Queryable, rows: MsStockRow[]): Promise<{ updated: number }> {
+  const ids: string[] = [];
+  const qty: number[] = [];
+  for (const r of rows) {
+    if (r.meta.type !== 'product') continue;
+    const id = idFromHref(r.meta.href);
+    if (!id) continue;
+    ids.push(id);
+    qty.push(Math.max(0, Number(r.quantity ?? r.stock ?? 0)));
+  }
+  await q.query('UPDATE catalog SET stock = 0, stock_at = now()');
+  if (ids.length === 0) return { updated: 0 };
+  const r = await q.query<{ n: number }>(
+    `WITH u AS (UPDATE catalog c SET stock = v.q, stock_at = now() FROM unnest($1::text[], $2::numeric[]) AS v(id, q) WHERE c.ms_id = v.id RETURNING 1)
+     SELECT count(*)::int AS n FROM u`,
+    [ids, qty],
+  );
+  return { updated: r.rows[0]!.n };
+}
+
+/** Отгрузка МойСклад в том виде, который нужен приложению. */
+export interface MsDemandInfo {
+  id: string;
+  name: string;
+  applicable: boolean;
+  orderId: string | null;
+  positions: { productId: string; qty: number }[];
+}
+
+/** Что приложение читает из МойСклад, когда приходит вебхук. */
+export interface MsEvents {
+  getDemand(id: string): Promise<MsDemandInfo | null>;
+  getOrderState(id: string): Promise<string | null>;
+}
+
+/** Чтение для вебхуков и регистрация самих вебхуков. */
+export class MsReader implements MsEvents {
+  constructor(private readonly ms: MoySklad) {}
+
+  async getDemand(id: string): Promise<MsDemandInfo | null> {
+    try {
+      const d = await this.ms.get<{
+        id: string; name: string; applicable?: boolean; customerOrder?: { meta: { href: string } };
+        positions?: { rows?: { quantity: number; assortment: { meta: { href: string; type: string } } }[] };
+      }>(`/entity/demand/${encodeURIComponent(id)}?expand=positions`);
+      return {
+        id: d.id, name: d.name, applicable: d.applicable !== false, orderId: idFromHref(d.customerOrder?.meta.href),
+        positions: (d.positions?.rows ?? []).filter((p) => p.assortment.meta.type === 'product').map((p) => ({ productId: idFromHref(p.assortment.meta.href)!, qty: p.quantity })),
+      };
+    } catch (err) {
+      if (err instanceof MsError && /404/.test(err.message)) return null; // отгрузку уже удалили
+      throw err;
+    }
+  }
+
+  async getOrderState(id: string): Promise<string | null> {
+    try {
+      const o = await this.ms.get<{ state?: { name?: string } }>(`/entity/customerorder/${encodeURIComponent(id)}?expand=state`);
+      return o.state?.name ?? null;
+    } catch (err) {
+      if (err instanceof MsError && /404/.test(err.message)) return null;
+      throw err;
+    }
+  }
+
+  /** Подписывает МойСклад на нужные события по адресу приложения. Уже существующие не дублирует. */
+  async ensureWebhooks(url: string): Promise<{ created: number; existing: number }> {
+    const want: [string, string][] = [['demand', 'CREATE'], ['demand', 'UPDATE'], ['customerorder', 'UPDATE']];
+    const have = (await this.ms.get<{ rows: { url: string; entityType: string; action: string; enabled?: boolean }[] }>('/entity/webhook?limit=100')).rows;
+    let created = 0;
+    for (const [entityType, action] of want) {
+      if (have.some((w) => w.url === url && w.entityType === entityType && w.action === action)) continue;
+      await this.ms.post('/entity/webhook', { url, entityType, action });
+      created++;
+    }
+    return { created, existing: want.length - created };
+  }
+}

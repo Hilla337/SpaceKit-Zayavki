@@ -31,4 +31,10 @@ export const config = {
   msOrderState: process.env.MS_ORDER_STATE ?? 'Готов к сборке',
   /** Каталог из МойСклад (только чтение) раз в N часов, если задан MS_TOKEN. 0 — выключено. */
   msSyncHours: Number(process.env.MS_SYNC_HOURS ?? 0),
+  /** Остатки из МойСклад раз в N минут (вместе с каталогом, если задан MS_TOKEN и MS_SYNC_HOURS). */
+  msStockMinutes: Number(process.env.MS_STOCK_MINUTES ?? 15),
+  /** Создавать ли отгрузки в МойСклад из приложения (при MS_WRITE=1). На стенде 0. */
+  msDemands: process.env.MS_DEMANDS !== '0',
+  /** Подписать МойСклад на события (отгрузки, статусы заказов): нужен MS_TOKEN и APP_URL. */
+  msWebhooks: process.env.MS_WEBHOOKS === '1',
 };

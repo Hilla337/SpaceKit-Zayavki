@@ -7,7 +7,7 @@ import sys
 
 src, dst = sys.argv[1], sys.argv[2]
 text = pathlib.Path(src).read_text(encoding='utf-8')
-keys = ['IMAGE', 'DB_PASSWORD', 'DATABASE_URL', 'AUTH_PEPPER', 'APP_URL', 'ADMIN_PHONE', 'ADMIN_PASSWORD', 'ADMIN_NAME', 'MS_TOKEN', 'MS_SYNC_HOURS', 'DOMAIN']
+keys = ['IMAGE', 'DB_PASSWORD', 'DATABASE_URL', 'AUTH_PEPPER', 'APP_URL', 'ADMIN_PHONE', 'ADMIN_PASSWORD', 'ADMIN_NAME', 'MS_TOKEN', 'MS_SYNC_HOURS', 'MS_WRITE', 'DOMAIN']
 for k in keys:
     v = os.environ.get('STAND_' + k, '')
     # $ в docker-compose означает подстановку переменной, поэтому в значениях пишем $$.

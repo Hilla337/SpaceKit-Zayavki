@@ -7,7 +7,8 @@ import { registerChatRoutes } from './routes-chat.js';
 import { registerCompanyRoutes } from './routes-companies.js';
 import { registerRequestRoutes } from './routes-requests.js';
 import { registerShipRoutes } from './routes-ship.js';
-import type { MsGateway } from './moysklad.js';
+import type { MsEvents, MsGateway } from './moysklad.js';
+import { handleMsEvent, webhookSecret, type MsWebhookEvent } from './ms-webhook.js';
 import type { Actor, Role } from './types.js';
 
 export interface AuthedUser extends Actor {
@@ -26,6 +27,10 @@ export interface Deps {
   trustProxy?: number;
   /** Запись в МойСклад (заказ при подтверждении, отгрузка). Если не задано, приложение работает без МойСклад. */
   ms?: MsGateway;
+  /** Отгрузки в МойСклад создавать из приложения (по умолчанию да). На стенде выключено, чтобы не списывать настоящие остатки. */
+  msDemands?: boolean;
+  /** Чтение МойСклад для вебхуков (обратная связь: отгрузки и статусы заказов). */
+  msEvents?: MsEvents;
 }
 
 declare module 'fastify' {
@@ -83,6 +88,24 @@ export function buildApp(deps: Deps): FastifyInstance {
       return readFile(new URL(file, WEB));
     });
   }
+
+  // Вебхук МойСклад: адрес с секретом, отвечаем сразу, события разбираем следом (МойСклад ждёт ответ недолго).
+  app.post<{ Params: { secret: string }; Body: { events?: MsWebhookEvent[] } }>('/ms/webhook/:secret', async (req, reply) => {
+    if (!deps.msEvents || req.params.secret !== webhookSecret(deps.pepper)) return reply.code(404).send({ error: 'not_found' });
+    const events = Array.isArray(req.body?.events) ? req.body.events.slice(0, 100) : [];
+    const ms = deps.msEvents;
+    void (async () => {
+      for (const ev of events) {
+        try {
+          const out = await handleMsEvent(deps.db, ms, ev);
+          req.log.info({ type: ev.meta?.type, action: ev.action, out }, 'событие МойСклад');
+        } catch (err) {
+          req.log.error({ err }, 'не удалось обработать событие МойСклад');
+        }
+      }
+    })();
+    return { ok: true };
+  });
 
   app.get('/health', async () => ({ ok: true }));
   app.get('/health/db', async (_req, reply) => {
