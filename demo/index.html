@@ -200,6 +200,32 @@ tr:last-child td{border-bottom:0}
 @media(max-width:520px){.grid{grid-template-columns:1fr}.span2{grid-column:auto}.who .nm{display:none}.logo img{height:22px}.msg{max-width:88%}
   .top .in{flex-wrap:nowrap;gap:8px;padding:8px 12px}.nav{overflow-x:auto;scrollbar-width:none}.nav button{padding:6px 8px;font-size:13px;white-space:nowrap}.who{gap:6px}.ib{width:34px;height:34px}h1{font-size:20px}}
 
+/* --- иконки --- */
+.i{width:18px;height:18px;flex:none;display:inline-block;vertical-align:-4px}
+.i.sm{width:14px;height:14px;vertical-align:-2px}
+.ib .i{width:20px;height:20px}
+.btn .i{margin:0 6px 0 -2px}
+.btn.sm .i{width:16px;height:16px;margin-right:5px;vertical-align:-3px}
+.cb .i{width:21px;height:21px}
+.voice .pl .i{width:16px;height:16px}
+.msg .file .fi .i{width:20px;height:20px}
+.msg .meta .i{width:15px;height:15px;vertical-align:-3px}
+.msg .meta .rd{color:#3d7a4e;letter-spacing:0}
+.msg .meta .ur{letter-spacing:0}
+.chk .box .i{width:16px;height:16px;stroke-width:2.6}
+.ctx .it .i{width:17px;height:17px;color:var(--mute)}
+.ctx .it.bad .i{color:var(--bad)}
+.ctxline > .i{color:var(--acc);width:16px;height:16px}
+a.ext{display:inline-flex;align-items:center;color:var(--mute);border-radius:6px;padding:1px;transition:color .2s,background .2s}
+a.ext:hover{color:var(--acc2);background:var(--accs)}
+a.ext .i{width:15px;height:15px}
+.spin{display:inline-block;width:12px;height:12px;border:2px solid var(--line2);border-top-color:var(--acc);border-radius:50%;margin-right:7px;vertical-align:-2px;animation:rot .8s linear infinite}
+@keyframes rot{to{transform:rotate(360deg)}}
+/* панель эмодзи и поле ввода не наезжают друг на друга */
+.composer{flex:none;position:relative;z-index:1}
+.chat{min-height:140px}
+.emoji{max-height:150px;background:var(--card)}
+
 body{min-height:100vh}
 .demo-chip{position:fixed;right:max(12px,env(safe-area-inset-right,0px));bottom:max(12px,env(safe-area-inset-bottom,0px));z-index:65;display:flex;gap:6px;align-items:center;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:6px 8px;box-shadow:var(--shadow);font-size:12px;color:var(--mute)}
 .demo-chip select{border:1px solid var(--line2);border-radius:9px;padding:4px 6px;background:#fff;font-size:12px;max-width:170px}
@@ -669,6 +695,35 @@ var ERR = {
   empty: 'Пустое сообщение', bad_line: 'Строка без «;» — нужно «менеджер;клиент»', bad_hints: 'Ошибка в списке',
 };
 
+// ---------- иконки: свой минималистичный набор (линии 1.8, цвет — текущий цвет текста) ----------
+var ICONS = {
+  bell: '<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>',
+  settings: '<path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="18" r="2"/>',
+  back: '<path d="M15 18l-6-6 6-6"/>',
+  external: '<path d="M7 17L17 7M9 7h8v8"/>',
+  x: '<path d="M18 6L6 18M6 6l12 12"/>',
+  clip: '<path d="M21 11.5l-8.6 8.6a5 5 0 0 1-7.1-7.1l8.6-8.6a3.5 3.5 0 0 1 5 5l-8.6 8.6a2 2 0 0 1-2.8-2.8l7.9-7.9"/>',
+  trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
+  smile: '<circle cx="12" cy="12" r="9"/><path d="M8.5 14.5a4.5 4.5 0 0 0 7 0M9 9.5h.01M15 9.5h.01"/>',
+  mic: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>',
+  send: '<path d="M5 12h13M13 6l6 6-6 6"/>',
+  play: '<path d="M8 5.5v13l10.5-6.5z" fill="currentColor"/>',
+  pause: '<path d="M9 5v14M15 5v14" stroke-width="3"/>',
+  reply: '<path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 6 6v5"/>',
+  edit: '<path d="M4 20h4L19 9l-4-4L4 16v4z"/>',
+  copy: '<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a1 1 0 0 1 1-1h10"/>',
+  file: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/>',
+  check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
+  checks: '<path d="M2 12.5l4.5 4.5L16 7.5"/><path d="M11.5 16.5l.5.5 9.5-9.5"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  logout: '<path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3M10 17l5-5-5-5M15 12H4"/>',
+  key: '<circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M17 6l3 3"/>',
+  users: '<circle cx="9" cy="8" r="3.5"/><path d="M3 20a6 6 0 0 1 12 0M16 4.5a3.5 3.5 0 0 1 0 7M21 20a6 6 0 0 0-4-5.6"/>',
+  list: '<path d="M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01"/>',
+  phone: '<path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2"/>',
+};
+function ic(name, cls) { return '<svg class="i' + (cls ? ' ' + cls : '') + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + ICONS[name] + '</svg>'; }
+
 // ---------- состояние ----------
 var S = { token: load('token'), me: null, cache: {}, notes: [], notesOpen: false, draft: null, catalogFor: null, chatTimer: null, msOn: null };
 
@@ -750,11 +805,11 @@ function resetCode(userId, name) {
 }
 function staffAdd() {
   var bg = document.createElement('div'); bg.className = 'modal-bg';
-  bg.innerHTML = '<div class="modal"><h1 style="font-size:19px;margin:0 0 10px">Новый сотрудник</h1>' +
+  bg.innerHTML = '<div class="modal"><h1 style="font-size:19px;margin:0 0 10px">Новый менеджер</h1>' +
     '<div class="f"><label>Роль</label><select id="saRole"><option value="manager">Менеджер</option><option value="admin">Админ</option><option value="picker">Сборщик</option></select></div>' +
     '<div class="f"><label>Имя и фамилия</label><input id="saName" autocomplete="off"></div>' +
     '<div class="f"><label>Телефон</label><input id="saPhone" type="tel" placeholder="+7 999 123-45-67"></div>' +
-    '<p class="xs">Пароль сотрудник задаст сам: после добавления нажмите «Код для пароля» и отправьте ему код.</p>' +
+    '<p class="xs">Пароль менеджер задаст сам: после добавления нажмите «Код для пароля» и отправьте ему код.</p>' +
     '<div class="btns" style="justify-content:flex-end"><button class="btn" id="saNo">Отмена</button><button class="btn pri" id="saYes">Добавить</button></div></div>';
   document.body.appendChild(bg); $('saName').focus();
   bg.addEventListener('click', function (e) {
@@ -762,16 +817,36 @@ function staffAdd() {
     if (e.target.id !== 'saYes') return;
     var b = { role: $('saRole').value, name: $('saName').value.trim(), phone: $('saPhone').value.trim() };
     if (!b.name || !b.phone) return toast('Заполните имя и телефон', true);
-    api('POST', '/staff', b).then(function () { bg.remove(); toast('Сотрудник добавлен'); viewCompanies(); }).catch(fail);
+    api('POST', '/staff', b).then(function () { bg.remove(); toast('Менеджер добавлен'); viewCompanies(); }).catch(fail);
   });
 }
+// Клиенты менеджера: выбрать менеджера и вставить его клиентов по одному в строке.
+// Строки вида «Менеджер;клиент» тоже понимаем — так можно вставить весь список сразу.
 function hintsLoad() {
-  return ask('Список «менеджер;клиент»', { text: 'По строке на клиента: имя менеджера, точка с запятой, название клиента. Например: «Татьяна Чех;Левар». Клиенты с точно совпадающим названием сразу попадут к своему менеджеру.', input: 'Филипп Инилеев;Профит рум', ok: 'Загрузить' }).then(function (text) {
-    if (!text) return;
-    return api('POST', '/hints', { text: text }).then(function (r) {
-      var msg = 'Сохранено строк: ' + r.saved + '. Сразу назначено клиентов: ' + r.assigned.length + '.' + (r.suggestions.length ? ' Похожих названий для ручной проверки: ' + r.suggestions.length + '.' : '');
-      return ask('Список загружен', { text: msg + (r.suggestions.length ? ' ' + r.suggestions.slice(0, 8).map(function (x) { return '«' + x.name + '» ← ' + x.hint + ' (' + x.managerName + ')'; }).join('; ') : ''), ok: 'Хорошо', cancel: 'Закрыть' });
-    }).then(function () { viewCompanies(); }).catch(function (e) { fail(e.data && e.data.message ? new Error(e.data.message) : e); });
+  var mgrs = S.managers || [];
+  var bg = document.createElement('div'); bg.className = 'modal-bg';
+  bg.innerHTML = '<div class="modal" style="max-width:520px"><h1 style="font-size:19px;margin:0 0 6px">Клиенты менеджера</h1>' +
+    '<p class="s" style="margin:0 0 12px">Клиенты с точно таким названием сразу попадут к выбранному менеджеру. Остальных он получит, когда клиент зарегистрируется под этим названием.</p>' +
+    '<div class="f"><label>Менеджер</label><select id="hlMgr">' + mgrs.map(function (m) { return '<option value="' + esc(m.name) + '">' + esc(m.name) + '</option>'; }).join('') + '</select></div>' +
+    '<div class="f"><label>Клиенты — по одному в строке</label><textarea id="hlText" class="inp" rows="8" placeholder="Например:&#10;Профит рум&#10;Гамота&#10;Кильганов"></textarea></div>' +
+    '<div class="btns" style="justify-content:flex-end"><button class="btn" id="hlNo">Отмена</button><button class="btn pri" id="hlYes">Сохранить</button></div></div>';
+  document.body.appendChild(bg); $('hlText').focus();
+  bg.addEventListener('click', function (e) {
+    if (e.target === bg || e.target.id === 'hlNo') return bg.remove();
+    if (e.target.id !== 'hlYes') return;
+    var mgr = $('hlMgr').value, names = mgrs.map(function (m) { return m.name.toLowerCase(); });
+    var lines = $('hlText').value.split(/\n+/).map(function (l) { return l.trim(); }).filter(function (l) { return l && l.charAt(0) !== '#'; }).map(function (l) {
+      var i = l.search(/[;\t]/);
+      if (i > 0 && names.indexOf(l.slice(0, i).trim().toLowerCase()) >= 0) return l.slice(0, i).trim() + ';' + l.slice(i + 1).trim();
+      return mgr + ';' + l;
+    });
+    if (!lines.length) return toast('Впишите хотя бы одного клиента: серый текст в поле — только пример', true);
+    api('POST', '/hints', { text: lines.join('\n') }).then(function (r) {
+      bg.remove();
+      var msg = 'Сохранено клиентов: ' + r.saved + '. Сразу закреплено за менеджерами: ' + r.assigned.length + '.';
+      if (r.suggestions.length) msg += ' Похожие названия для проверки: ' + r.suggestions.slice(0, 6).map(function (x) { return '«' + x.name + '» ← ' + x.hint + ' (' + x.managerName + ')'; }).join('; ') + '.';
+      return ask('Готово', { text: msg, ok: 'Хорошо', cancel: 'Закрыть' }).then(function () { viewCompanies(); });
+    }).catch(function (er) { fail(er.data && er.data.message ? new Error(er.data.message) : er); });
   });
 }
 function coPeople(companyId) {
@@ -779,7 +854,7 @@ function coPeople(companyId) {
   if (box.innerHTML) { box.innerHTML = ''; return; }
   api('GET', '/companies/' + companyId + '/users').then(function (l) {
     box.innerHTML = '<div class="ms" style="margin-top:8px">' + (l.length ? l.map(function (u) {
-      return '<div class="row" style="padding:4px 0"><span class="sp">' + esc(u.name) + ' <span class="xs">' + esc(u.phone || 'без телефона') + (u.status === 'pending' ? ' · ждёт подтверждения' : '') + '</span></span><button class="btn sm" data-act="resetCode" data-id="' + u.id + '" data-name="' + esc(u.name) + '">Код сброса пароля</button></div>';
+      return '<div class="row" style="padding:4px 0"><span class="sp">' + esc(u.name) + ' <span class="xs">' + esc(u.phone || 'без телефона') + (u.status === 'pending' ? ' · ждёт подтверждения' : '') + '</span></span><button class="btn sm" data-act="resetCode" data-id="' + u.id + '" data-name="' + esc(u.name) + '">' + ic('key') + 'Код сброса пароля</button></div>';
     }).join('') : '<div class="xs">Пока никто не зарегистрирован</div>') + '</div>';
   }).catch(fail);
 }
@@ -850,8 +925,8 @@ function renderTop() {
   if (me) {
     var unread = S.notes.filter(function (n) { return !n.read; }).length;
     h += '<div class="who"><span class="nm">' + esc(me.name) + ' · ' + esc(ROLE[me.role] || me.role) + '</span>' +
-      '<div class="bw"><button class="ib" data-act="notes" title="Уведомления">🔔' + (unread ? '<span class="n2">' + unread + '</span>' : '') + '</button>' + (S.notesOpen ? notesHtml() : '') + '</div>' +
-      '<button class="ib" data-go="#/settings" title="Настройки">⚙</button></div>';
+      '<div class="bw"><button class="ib" data-act="notes" title="Уведомления" aria-label="Уведомления">' + ic('bell') + (unread ? '<span class="n2">' + unread + '</span>' : '') + '</button>' + (S.notesOpen ? notesHtml() : '') + '</div>' +
+      '<button class="ib" data-go="#/settings" title="Настройки" aria-label="Настройки">' + ic('settings') + '</button></div>';
   }
   $('top').innerHTML = h;
   document.querySelector('.top').style.display = me ? '' : 'none';
@@ -870,7 +945,7 @@ function pollNotes() {
     var before = S.notes.filter(function (n) { return !n.read; }).length;
     S.notes = l; renderTop();
     var after = l.filter(function (n) { return !n.read; }).length;
-    if (after > before && before >= 0 && S._notesLoaded) toast('🔔 ' + l[0].text);
+    if (after > before && before >= 0 && S._notesLoaded) toast(l[0].text);
     S._notesLoaded = true;
   }).catch(function () {}).then(function () { notesTimer = setTimeout(pollNotes, 20000); });
 }
@@ -895,13 +970,13 @@ function viewLogin(step, info) {
       '<div class="f"><label>Компания <i>*</i></label><input id="pcompany" autocomplete="organization"></div>' +
       '<div class="f"><label>Пароль <i>*</i> <span class="xs">не короче 6 символов</span></label><input id="pass" type="password" autocomplete="new-password"></div>' +
       '<div class="f"><label>Пароль ещё раз <i>*</i></label><input id="pass2" type="password" autocomplete="new-password"></div>' +
-      '<button class="btn pri full" data-act="doRegister">Зарегистрироваться</button><div class="btns"><button class="btn sm" data-act="toLogin">← У меня уже есть пароль</button></div>';
+      '<button class="btn pri full" data-act="doRegister">Зарегистрироваться</button><div class="btns"><button class="btn sm" data-act="toLogin">' + ic('back') + 'У меня уже есть пароль</button></div>';
   } else {
-    h += '<h1 style="margin-top:0">Новый пароль</h1><div class="note">Попросите своего менеджера прислать код сброса (сотрудникам код выдаёт администратор). Код из 6 цифр действует сутки.</div>' + phoneField +
+    h += '<h1 style="margin-top:0">Новый пароль</h1><div class="note">Попросите своего менеджера прислать код сброса (менеджерам код выдаёт администратор). Код из 6 цифр действует сутки.</div>' + phoneField +
       '<div class="f"><label>Код от менеджера</label><input id="rcode" class="code" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="······"></div>' +
       '<div class="f"><label>Новый пароль <span class="xs">не короче 6 символов</span></label><input id="pass" type="password" autocomplete="new-password"></div>' +
       '<div class="f"><label>Новый пароль ещё раз</label><input id="pass2" type="password" autocomplete="new-password"></div>' +
-      '<button class="btn pri full" data-act="doReset">Сохранить и войти</button><div class="btns"><button class="btn sm" data-act="toLogin">← Ко входу</button></div>';
+      '<button class="btn pri full" data-act="doReset">Сохранить и войти</button><div class="btns"><button class="btn sm" data-act="toLogin">' + ic('back') + 'Ко входу</button></div>';
   }
   $('app').innerHTML = h + '</div></div>';
   S.login = { step: step, phone: info.phone || (S.login && S.login.phone) || '' };
@@ -932,8 +1007,8 @@ function viewPending() {
 
 function viewSettings() {
   $('app').innerHTML = '<div class="wrap"><h1>Настройки</h1><div class="card"><div class="b">' + esc(S.me.name) + '</div><div class="s">' + esc(ROLE[S.me.role]) + '</div>' +
-    (S.me.role === 'customer' && S.me.smsAvailable ? '<label class="chk' + (S.me.smsEnabled ? ' on' : '') + '" data-act="toggleSms" style="margin-top:12px"><div class="box">' + (S.me.smsEnabled ? '✓' : '') + '</div><div>SMS о заявках<div class="xs">Подтверждение, отгрузка, отмена. Уведомления в приложении остаются всегда.</div></div></label>' : '') +
-    '<div class="btns"><button class="btn" data-act="changePass">Сменить пароль</button><button class="btn bad" data-act="logout">Выйти</button></div></div></div>';
+    (S.me.role === 'customer' && S.me.smsAvailable ? '<label class="chk' + (S.me.smsEnabled ? ' on' : '') + '" data-act="toggleSms" style="margin-top:12px"><div class="box">' + (S.me.smsEnabled ? ic('check') : '') + '</div><div>SMS о заявках<div class="xs">Подтверждение, отгрузка, отмена. Уведомления в приложении остаются всегда.</div></div></label>' : '') +
+    '<div class="btns"><button class="btn" data-act="changePass">' + ic('key') + 'Сменить пароль</button><button class="btn bad" data-act="logout">' + ic('logout') + 'Выйти</button></div></div></div>';
 }
 
 // ---------- список заявок ----------
@@ -946,7 +1021,7 @@ function viewList() {
       : [['active', 'В работе', ['new', 'work', 'confirm']], ['new', 'Новые', ['new']], ['work', 'В обработке', ['work']], ['confirm', 'На подтверждении', ['confirm']], ['floor', 'Сборка', ['assembly', 'partial']], ['done', 'Закрытые', ['shipped', 'cancelled']], ['all', 'Все', null]];
     var g = groups.filter(function (x) { return x[0] === tab; })[0] || groups[0];
     var list = rows.filter(function (r) { return !g[2] || g[2].indexOf(r.status) >= 0; });
-    var h = '<div class="wrap wide"><div class="row"><h1 class="sp">' + (role === 'picker' ? 'Сборка и отгрузка' : 'Заявки') + '</h1>' + (role === 'customer' ? '<button class="btn pri" data-go="#/new">+ Новая заявка</button>' : '') + '</div>';
+    var h = '<div class="wrap wide"><div class="row"><h1 class="sp">' + (role === 'picker' ? 'Сборка и отгрузка' : 'Заявки') + '</h1>' + (role === 'customer' ? '<button class="btn pri" data-go="#/new">' + ic('plus') + 'Новая заявка</button>' : '') + '</div>';
     if (groups.length > 1) h += '<div class="tabs">' + groups.map(function (x) { var c = rows.filter(function (r) { return !x[2] || x[2].indexOf(r.status) >= 0; }).length; return '<button data-act="listTab" data-tab="' + x[0] + '" class="' + (x[0] === g[0] ? 'on' : '') + '">' + x[1] + ' <span class="xs">' + c + '</span></button>'; }).join('') + '</div>';
     h += '<div class="list">' + (list.length ? list.map(function (r) {
       return '<div class="card" data-go="#/r/' + r.id + '"><div class="row"><b>№' + r.id + '</b>' + pill(r.status) + '<span class="sp"></span><span class="xs">' + when(r.updatedAt) + '</span></div>' +
@@ -984,13 +1059,13 @@ function renderNew() {
   if (d.items.length) {
     h += '<div style="margin-top:8px">' + d.items.map(function (it, i) {
       return '<div class="pos"><div class="row"><input class="inp sp" data-item="' + i + '" data-k="name" value="' + esc(it.name) + '">' +
-        '<button class="btn sm bad" data-act="delItem" data-i="' + i + '" title="Убрать">✕</button></div>' +
+        '<button class="btn sm bad" data-act="delItem" data-i="' + i + '" title="Убрать" aria-label="Убрать">' + ic('x') + '</button></div>' +
         '<div class="row" style="margin-top:6px"><input class="inp" style="width:110px" type="number" min="0" step="any" data-item="' + i + '" data-k="qty" value="' + esc(it.qty) + '">' +
         '<select class="inp" style="width:90px" data-item="' + i + '" data-k="unit">' + UNITS.map(function (u) { return '<option' + (it.unit === u ? ' selected' : '') + '>' + u + '</option>'; }).join('') + '</select>' +
         (it.store ? '<span class="tag acc">' + esc(it.store) + (it.code ? ' · ' + esc(it.code) : '') + '</span>' : '') + '</div></div>';
-    }).join('') + '</div><button class="btn sm" data-act="addItem">+ Позиция</button>';
+    }).join('') + '</div><button class="btn sm" data-act="addItem">' + ic('plus') + 'Позиция</button>';
   } else {
-    h += '<div class="btns"><button class="btn sm" data-act="addItem">+ Добавить позицию вручную</button></div>';
+    h += '<div class="btns"><button class="btn sm" data-act="addItem">' + ic('plus') + 'Добавить позицию вручную</button></div>';
   }
   h += '<div class="btns"><button class="btn pri full" data-act="submitNew">Отправить заявку</button></div></div>';
   $('app').innerHTML = h;
@@ -1053,7 +1128,7 @@ function reloadReq() { return api('GET', '/requests/' + S.req.id).then(function 
 function renderRequest() {
   var r = S.req, me = S.me, role = me.role, staff = isStaff();
   var own = role === 'admin' || (role === 'manager' && r.managerId === me.id);
-  var h = '<div class="wrap wide"><div class="row" style="margin-bottom:6px"><button class="btn sm" data-go="#/">← Заявки</button></div>' +
+  var h = '<div class="wrap wide"><div class="row" style="margin-bottom:6px"><button class="btn sm" data-go="#/">' + ic('back') + 'Заявки</button></div>' +
     '<div class="row"><h1 class="sp">Заявка №' + r.id + ' ' + pill(r.status) + '</h1></div>' +
     '<div class="s" style="margin:-10px 0 14px">' + esc(r.companyName) + ' · создана ' + when(r.createdAt) + (r.vatInvoice ? ' · <span class="tag">счёт с НДС</span>' : '') + (r.msOrder ? ' · заказ МойСклад <b>' + esc(r.msOrder) + '</b>' : '') + '</div>';
 
@@ -1071,13 +1146,13 @@ function renderRequest() {
   } else if (shipping) {
     h += r.items.map(function (it) {
       var on = !!S.sel[it.id];
-      return '<div class="chk' + (it.shipped ? ' done' : on ? ' on' : '') + '"' + (it.shipped ? '' : ' data-act="selItem" data-id="' + it.id + '"') + '><div class="box">' + (it.shipped || on ? '✓' : '') + '</div><div class="sp"><div>' + esc(it.skuName || it.name) + '</div><div class="xs">' + (it.skuName && it.skuName !== it.name ? 'в заявке: ' + esc(it.name) + ' · ' : '') + qtyFmt(it.qty) + ' ' + esc(it.unit || '') + (it.shipped ? ' · отгружено' : '') + '</div></div></div>';
+      return '<div class="chk' + (it.shipped ? ' done' : on ? ' on' : '') + '"' + (it.shipped ? '' : ' data-act="selItem" data-id="' + it.id + '"') + '><div class="box">' + (it.shipped || on ? ic('check') : '') + '</div><div class="sp"><div>' + esc(it.skuName || it.name) + '</div><div class="xs">' + (it.skuName && it.skuName !== it.name ? 'в заявке: ' + esc(it.name) + ' · ' : '') + qtyFmt(it.qty) + ' ' + esc(it.unit || '') + (it.shipped ? ' · отгружено' : '') + '</div></div></div>';
     }).join('');
   } else {
     var prices = r.items.length && r.items[0].price !== undefined;
     h += '<div class="card"><table><tr><th>Товар</th><th class="num">Кол-во</th>' + (prices ? '<th class="num">Цена</th><th class="num">Сумма</th>' : '') + '</tr>' +
       r.items.map(function (it) {
-        return '<tr><td>' + esc(it.skuName || it.name) + (it.skuName && it.skuName !== it.name ? '<div class="xs">в заявке: ' + esc(it.name) + '</div>' : '') + (it.url ? ' <a href="' + esc(it.url) + '" target="_blank" rel="noopener">↗</a>' : '') + (staff && it.matchState === 'none' ? ' <span class="tag warn">не подобран</span>' : '') + (it.shipped ? ' <span class="tag ok">отгружено</span>' : '') + (it.note ? '<div class="xs">' + esc(it.note) + '</div>' : '') + '</td>' +
+        return '<tr><td>' + esc(it.skuName || it.name) + (it.skuName && it.skuName !== it.name ? '<div class="xs">в заявке: ' + esc(it.name) + '</div>' : '') + (it.url ? ' <a class="ext" href="' + esc(it.url) + '" target="_blank" rel="noopener" title="Открыть товар">' + ic('external') + '</a>' : '') + (staff && it.matchState === 'none' ? ' <span class="tag warn">не подобран</span>' : '') + (it.shipped ? ' <span class="tag ok">отгружено</span>' : '') + (it.note ? '<div class="xs">' + esc(it.note) + '</div>' : '') + '</td>' +
           '<td class="num">' + qtyFmt(it.qty) + ' ' + esc(it.unit || '') + '</td>' + (prices ? '<td class="num">' + money(it.price) + '</td><td class="num">' + money(it.total) + '</td>' : '') + '</tr>';
       }).join('') + '</table>' + (r.total !== undefined ? '<div class="tot"><span>Итого</span><span>' + money(r.total) + '</span></div>' : '<div class="xs" style="margin-top:8px">Цены появятся, когда менеджер отправит заявку на подтверждение.</div>') + '</div>';
   }
@@ -1119,10 +1194,10 @@ function btn(kind, label, act, arg) { return '<button class="btn ' + kind + '" d
 function itemEditor(it) {
   var ok = it.matchState !== 'none';
   return '<div class="pos' + (ok && it.price ? '' : ' bad') + '"><div class="row"><div class="sp"><b>' + esc(it.name) + '</b> <span class="xs">' + qtyFmt(it.qty) + ' ' + esc(it.unit || '') + '</span>' +
-    (it.url ? ' <a href="' + esc(it.url) + '" target="_blank" rel="noopener">↗</a>' : '') + (it.store ? ' <span class="tag acc">' + esc(it.store) + (it.storeCode ? ' · ' + esc(it.storeCode) : '') + '</span>' : '') + '</div></div>' +
+    (it.url ? ' <a class="ext" href="' + esc(it.url) + '" target="_blank" rel="noopener" title="Открыть товар">' + ic('external') + '</a>' : '') + (it.store ? ' <span class="tag acc">' + esc(it.store) + (it.storeCode ? ' · ' + esc(it.storeCode) : '') + '</span>' : '') + '</div></div>' +
     '<div class="row" style="margin-top:8px"><div class="pick sp"><input class="inp" data-cat="' + it.id + '" placeholder="' + (ok ? 'Сменить товар из каталога…' : 'Найти товар в каталоге МойСклад…') + '" autocomplete="off"><div id="dd' + it.id + '"></div></div>' +
     '<input class="inp" style="width:120px" type="number" min="0" step="0.01" data-price="' + it.id + '" placeholder="Цена" value="' + (it.price == null ? '' : it.price) + '"' + (ok ? '' : ' disabled') + '></div>' +
-    '<div class="xs" style="margin-top:4px">' + (ok ? '✓ ' + esc(it.skuName || 'подобран товар из каталога') + (it.price ? ' · сумма ' + money(it.total) : ' · поставьте цену') : 'не подобран') + '</div></div>';
+    '<div class="xs" style="margin-top:4px">' + (ok ? ic('check', 'sm') + ' ' + esc(it.skuName || 'подобран товар из каталога') + (it.price ? ' · сумма ' + money(it.total) : ' · поставьте цену') : 'не подобран') + '</div></div>';
 }
 
 // поиск по каталогу с задержкой
@@ -1168,7 +1243,7 @@ function dayLabel(d) {
 function hhmm(d) { return new Date(d).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }); }
 function fsize(n) { return n < 1024 ? n + ' Б' : n < 1048576 ? (n / 1024).toFixed(0) + ' КБ' : (n / 1048576).toFixed(1) + ' МБ'; }
 function linkify(t) { return esc(t).replace(/https?:\/\/[^\s<]+/g, function (u) { return '<a href="' + u + '" target="_blank" rel="noopener">' + u + '</a>'; }); }
-function kindLabel(k) { return k === 'photo' ? '📷 Фото' : k === 'video' ? '🎬 Видео' : k === 'voice' ? '🎤 Голосовое сообщение' : k === 'file' ? '📎 Файл' : ''; }
+function kindLabel(k) { return k === 'photo' ? 'Фото' : k === 'video' ? 'Видео' : k === 'voice' ? 'Голосовое сообщение' : k === 'file' ? 'Файл' : ''; }
 function snippet(m) { return m.deleted ? 'Сообщение удалено' : (m.text || kindLabel(m.kind || (m.attachment && m.attachment.kind))); }
 function durFmt(ms) { var s = Math.round((ms || 0) / 1000); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); }
 function bars(id) { var h = '', x = id * 9301 + 49297; for (var i = 0; i < 28; i++) { x = (x * 9301 + 49297) % 233280; h += '<i style="height:' + (20 + (x / 233280) * 80).toFixed(0) + '%"></i>'; } return h; }
@@ -1178,17 +1253,17 @@ function msgHtml(m, prev, isNew) {
   var cls = 'msg' + (m.mine ? ' me' : '') + (cont ? ' cont' : '') + (m.deleted ? ' del' : '') + (isNew ? ' new' : '');
   var h = '<div class="' + cls + '" data-mid="' + m.id + '">';
   if (!m.mine && !cont) h += '<div class="w">' + esc(m.authorName) + '</div>';
-  if (m.deleted) return h + '🗑 Сообщение удалено<span class="meta">' + hhmm(m.createdAt) + '</span></div>';
+  if (m.deleted) return h + ic('trash', 'sm') + ' Сообщение удалено<span class="meta">' + hhmm(m.createdAt) + '</span></div>';
   if (m.replyTo) h += '<div class="rp" data-goto="' + m.replyTo.id + '"><b>' + esc(m.replyTo.authorName || '') + '</b><span>' + esc(m.replyTo.deleted ? 'Сообщение удалено' : (m.replyTo.text || kindLabel(m.replyTo.kind))) + '</span></div>';
   var a = m.attachment;
   if (a) {
     if (a.kind === 'photo') h += '<img class="ph" data-att="' + a.id + '" alt="фото">';
     else if (a.kind === 'video') h += '<video class="vd" data-att="' + a.id + '" controls playsinline preload="metadata"></video>';
-    else if (a.kind === 'voice') h += '<div class="voice" data-voice="' + a.id + '"><button class="pl" data-play="' + a.id + '">▶</button><div class="bars" data-seek="' + a.id + '">' + bars(a.id) + '</div><span class="dur" id="vd' + a.id + '">' + durFmt(a.durationMs) + '</span></div>';
-    else h += '<div class="file" data-dl="' + a.id + '" data-name="' + esc(a.name) + '"><div class="fi">📄</div><div><div class="fn">' + esc(a.name) + '</div><div class="xs">' + fsize(a.size) + ' · скачать</div></div></div>';
+    else if (a.kind === 'voice') h += '<div class="voice" data-voice="' + a.id + '"><button class="pl" data-play="' + a.id + '" aria-label="Слушать">' + ic('play') + '</button><div class="bars" data-seek="' + a.id + '">' + bars(a.id) + '</div><span class="dur" id="vd' + a.id + '">' + durFmt(a.durationMs) + '</span></div>';
+    else h += '<div class="file" data-dl="' + a.id + '" data-name="' + esc(a.name) + '"><div class="fi">' + ic('file') + '</div><div><div class="fn">' + esc(a.name) + '</div><div class="xs">' + fsize(a.size) + ' · скачать</div></div></div>';
   }
   if (m.text) h += '<span class="t">' + linkify(m.text) + '</span>';
-  h += '<span class="meta">' + (m.editedAt ? 'изм. ' : '') + hhmm(m.createdAt) + (m.mine ? (m.read ? '<span class="rd" title="Прочитано">✓✓</span>' : '<span class="ur" title="Отправлено">✓</span>') : '') + '</span>';
+  h += '<span class="meta">' + (m.editedAt ? 'изм. ' : '') + hhmm(m.createdAt) + (m.mine ? (m.read ? '<span class="rd" title="Прочитано">' + ic('checks') + '</span>' : '<span class="ur" title="Отправлено">' + ic('check') + '</span>') : '') + '</span>';
   if (m.reactions && m.reactions.length) h += '<div class="rx">' + m.reactions.map(function (r) { return '<button class="' + (r.mine ? 'mine' : '') + '" data-react="' + m.id + '" data-emoji="' + r.emoji + '">' + r.emoji + (r.count > 1 ? ' ' + r.count : '') + '</button>'; }).join('') + '</div>';
   return h + '</div>';
 }
@@ -1227,7 +1302,7 @@ function loadMedia(box) {
     blobUrl(id).then(function (u) {
       if (el.tagName === 'IMG') el.onload = function () { var b = $('chat'); if (b && b.scrollHeight - b.scrollTop - b.clientHeight < 400) b.scrollTop = b.scrollHeight; };
       el.src = u;
-    }).catch(function () { el.replaceWith(document.createTextNode('⚠ файл недоступен')); });
+    }).catch(function () { el.replaceWith(document.createTextNode('Файл недоступен')); });
   });
 }
 
@@ -1235,23 +1310,23 @@ function loadMedia(box) {
 function renderComposer() {
   var c = $('composer'); if (!c) return;
   var h = '';
-  if (S.reply) h += '<div class="ctxline"><span>↩</span><div class="sp"><b>' + esc(S.reply.authorName) + '</b><span>' + esc(snippet(S.reply)) + '</span></div><button class="cb" data-chat="cancelCtx" title="Отменить">✕</button></div>';
-  if (S.edit) h += '<div class="ctxline"><span>✎</span><div class="sp"><b>Редактирование</b><span>' + esc(snippet(S.edit)) + '</span></div><button class="cb" data-chat="cancelCtx" title="Отменить">✕</button></div>';
-  if (S.uploading) h += '<div class="uploading">⏳ ' + esc(S.uploading) + '</div>';
+  if (S.reply) h += '<div class="ctxline">' + ic('reply') + '<div class="sp"><b>' + esc(S.reply.authorName) + '</b><span>' + esc(snippet(S.reply)) + '</span></div><button class="cb" data-chat="cancelCtx" title="Отменить">' + ic('x') + '</button></div>';
+  if (S.edit) h += '<div class="ctxline">' + ic('edit') + '<div class="sp"><b>Редактирование</b><span>' + esc(snippet(S.edit)) + '</span></div><button class="cb" data-chat="cancelCtx" title="Отменить">' + ic('x') + '</button></div>';
+  if (S.uploading) h += '<div class="uploading"><span class="spin"></span>' + esc(S.uploading) + '</div>';
   if (S.emojiOpen) h += '<div class="emoji">' + EMOJI.map(function (e) { return '<button data-emoji-ins="' + e + '">' + e + '</button>'; }).join('') + '</div>';
   if (S.rec) {
-    h += '<div class="bar"><button class="cb" data-chat="recCancel" title="Отменить запись">🗑</button><div class="recbar"><span class="dot"></span><span id="recT">0:00</span><span class="xs" style="font-weight:400">запись голосового…</span></div><button class="cb send" data-chat="recSend" title="Отправить">➤</button></div>';
+    h += '<div class="bar"><button class="cb" data-chat="recCancel" title="Отменить запись">' + ic('trash') + '</button><div class="recbar"><span class="dot"></span><span id="recT">0:00</span><span class="xs" style="font-weight:400">запись голосового…</span></div><button class="cb send" data-chat="recSend" title="Отправить">' + ic('send') + '</button></div>';
   } else {
     var text = S.chatDraft || '';
-    h += '<div class="bar"><button class="cb" data-chat="attach" title="Фото, видео или файл">📎</button>' +
+    h += '<div class="bar"><button class="cb" data-chat="attach" title="Фото, видео или файл" aria-label="Прикрепить">' + ic('clip') + '</button>' +
       '<textarea id="msg" rows="1" placeholder="' + (S.edit ? 'Новый текст…' : 'Сообщение') + '">' + esc(text) + '</textarea>' +
-      '<button class="cb" data-chat="emoji" title="Эмодзи">😊</button>' + mainBtn(text) + '</div>';
+      '<button class="cb" data-chat="emoji" title="Эмодзи" aria-label="Эмодзи">' + ic('smile') + '</button>' + mainBtn(text) + '</div>';
   }
   c.innerHTML = h;
   var t = $('msg'); if (t) autosize(t);
 }
 function mainBtn(text) {
-  return text.trim() || S.edit ? '<button class="cb send" id="cbMain" data-chat="send" title="Отправить">➤</button>' : '<button class="cb" id="cbMain" data-chat="rec" title="Записать голосовое">🎤</button>';
+  return text.trim() || S.edit ? '<button class="cb send" id="cbMain" data-chat="send" title="Отправить" aria-label="Отправить">' + ic('send') + '</button>' : '<button class="cb" id="cbMain" data-chat="rec" title="Записать голосовое" aria-label="Записать голосовое">' + ic('mic') + '</button>';
 }
 function autosize(t) { t.style.height = 'auto'; t.style.height = Math.min(t.scrollHeight, 140) + 'px'; }
 
@@ -1341,8 +1416,8 @@ function playVoice(id) {
   blobUrl(id).then(function (u) {
     var a = new Audio(u); player = { audio: a, id: id };
     var btnEl = function () { return document.querySelector('[data-play="' + id + '"]'); };
-    a.onplay = function () { var b = btnEl(); if (b) b.textContent = '❚❚'; };
-    a.onpause = a.onended = function () { var b = btnEl(); if (b) b.textContent = '▶'; };
+    a.onplay = function () { var b = btnEl(); if (b) { b.innerHTML = ic('pause'); b.classList.add('on'); } };
+    a.onpause = a.onended = function () { var b = btnEl(); if (b) { b.innerHTML = ic('play'); b.classList.remove('on'); } };
     a.ontimeupdate = function () {
       var wrap = document.querySelector('[data-seek="' + id + '"]'); if (!wrap || !a.duration || !isFinite(a.duration)) return;
       var bs = wrap.children, k = Math.round(bs.length * a.currentTime / a.duration);
@@ -1360,8 +1435,8 @@ function openCtx(m, x, y) {
   var canEdit = m.mine, canDel = m.mine || S.me.role === 'admin';
   var el = document.createElement('div'); el.className = 'ctx'; el.id = 'ctx';
   el.innerHTML = '<div class="em">' + REACTIONS.map(function (e) { return '<button data-ctx-react="' + e + '">' + e + '</button>'; }).join('') + '</div>' +
-    '<div class="it" data-ctx="reply">↩ Ответить</div>' + (m.text ? '<div class="it" data-ctx="copy">⧉ Копировать текст</div>' : '') +
-    (canEdit ? '<div class="it" data-ctx="edit">✎ Изменить</div>' : '') + (canDel ? '<div class="it bad" data-ctx="delete">🗑 Удалить</div>' : '');
+    '<div class="it" data-ctx="reply">' + ic('reply') + 'Ответить</div>' + (m.text ? '<div class="it" data-ctx="copy">' + ic('copy') + 'Копировать текст</div>' : '') +
+    (canEdit ? '<div class="it" data-ctx="edit">' + ic('edit') + 'Изменить</div>' : '') + (canDel ? '<div class="it bad" data-ctx="delete">' + ic('trash') + 'Удалить</div>' : '');
   document.body.appendChild(el);
   var w = el.offsetWidth, h = el.offsetHeight;
   el.style.left = Math.max(8, Math.min(x, innerWidth - w - 8)) + 'px';
@@ -1492,7 +1567,7 @@ function renderCompanies() {
     var acts = [];
     if (c.managerId === null && me.role === 'manager') acts.push('<button class="btn sm" data-act="claim" data-id="' + c.id + '">Взять клиента</button>');
     if (own && c.status === 'pending') acts.push('<button class="btn sm pri" data-act="approve" data-id="' + c.id + '">Подтвердить компанию</button>');
-    if (own) acts.push('<button class="btn sm" data-act="coPeople" data-id="' + c.id + '">Люди и пароли</button>');
+    if (own) acts.push('<button class="btn sm" data-act="coPeople" data-id="' + c.id + '">' + ic('users') + 'Люди и пароли</button>');
     if (own) acts.push('<label class="row xs" style="cursor:pointer"><input type="checkbox" data-act="coVat" data-id="' + c.id + '"' + (c.vatInvoice ? ' checked' : '') + '> счёт с НДС</label>');
     if (me.role === 'admin' && S.managers) acts.push('<label class="row xs">Ведёт: <select class="inp" style="width:auto;padding:5px 8px" data-act="reassign" data-id="' + c.id + '"><option value="">—</option>' + S.managers.map(function (m) { return '<option value="' + m.id + '"' + (m.id === c.managerId ? ' selected' : '') + '>' + esc(m.name) + '</option>'; }).join('') + '</select></label>');
     return '<div class="card" style="cursor:default"><div class="row"><b class="sp">' + esc(c.name) + '</b><span class="pill p-' + c.status + '">' + esc(CO_ST[c.status]) + '</span></div>' +
@@ -1501,11 +1576,11 @@ function renderCompanies() {
       (acts.length ? '<div class="btns" style="margin-top:8px;align-items:center">' + acts.join('') + '</div>' : '') + '<div id="people' + c.id + '"></div></div>';
   }).join('') : '<div class="empty">Здесь пусто</div>';
   if (me.role === 'admin' && S.staff) {
-    h += '</div><h2>Сотрудники</h2><div class="card">' + S.staff.map(function (u) {
+    h += '</div><h2>Менеджеры</h2><div class="card">' + S.staff.map(function (u) {
       return '<div class="row" style="padding:5px 0;flex-wrap:wrap"><span class="sp">' + esc(u.name) + ' <span class="xs">' + esc(ROLE[u.role] || u.role) + ' · ' + (u.phone ? esc(u.phone) : '<span class="tag warn">нет телефона</span>') + (u.phone && !u.hasPassword ? ' · <span class="tag warn">пароль не задан</span>' : '') + '</span></span>' +
-        (u.id !== me.id ? '<button class="btn sm" data-act="staffPhone" data-id="' + u.id + '" data-name="' + esc(u.name) + '">' + (u.phone ? 'Сменить телефон' : 'Задать телефон') + '</button>' : '') +
-        (u.phone && u.id !== me.id ? '<button class="btn sm" data-act="resetCode" data-id="' + u.id + '" data-name="' + esc(u.name) + '">Код для пароля</button>' : '') + '</div>';
-    }).join('') + '<div class="btns"><button class="btn sm pri" data-act="staffAdd">+ Сотрудник</button><button class="btn sm" data-act="hintsLoad">Список «менеджер;клиент»</button></div></div><div>';
+        (u.id !== me.id ? '<button class="btn sm" data-act="staffPhone" data-id="' + u.id + '" data-name="' + esc(u.name) + '">' + ic('phone') + (u.phone ? 'Телефон' : 'Задать телефон') + '</button>' : '') +
+        (u.phone && u.id !== me.id ? '<button class="btn sm" data-act="resetCode" data-id="' + u.id + '" data-name="' + esc(u.name) + '">' + ic('key') + 'Код для пароля</button>' : '') + '</div>';
+    }).join('') + '<div class="btns"><button class="btn sm pri" data-act="staffAdd">' + ic('plus') + 'Менеджер</button><button class="btn sm" data-act="hintsLoad">' + ic('list') + 'Клиенты менеджеров</button></div></div><div>';
   }
   $('app').innerHTML = h + '</div></div>';
 }
