@@ -4,6 +4,7 @@ import type { AuthedUser, Deps } from './app.js';
 import type { Queryable } from './db.js';
 import { parseId } from './routes-companies.js';
 import { companyInfo, loadRequest, requestInfo, type RequestRow } from './routes-requests.js';
+import { vapidKeys } from './push.js';
 import { customersOfCompany, notifyUsersOnce, staffOfCompany } from './services.js';
 
 /** Чат ведут заказчик, менеджер клиента и админ. Сборщик переписку не видит. */
@@ -312,6 +313,45 @@ export function registerChatRoutes(app: FastifyInstance, deps: Deps, clock: () =
     if (!r.rows[0]) return reply.code(404).send({ error: 'not_found' });
     return { ok: true };
   });
+
+  // ---- push-уведомления в браузер ----
+  // Открытый ключ сервера нужен браузеру для подписки; он не секретный.
+  app.get('/push/key', async () => ({ publicKey: (await vapidKeys(db)).publicKey }));
+
+  app.post<{ Body: { endpoint: string; keys: { p256dh: string; auth: string } } }>(
+    '/push/subscribe',
+    {
+      preHandler: app.authenticate,
+      schema: {
+        body: {
+          type: 'object',
+          required: ['endpoint', 'keys'],
+          properties: {
+            endpoint: { type: 'string', pattern: '^https://', maxLength: 1000 },
+            keys: { type: 'object', required: ['p256dh', 'auth'], properties: { p256dh: { type: 'string', maxLength: 200 }, auth: { type: 'string', maxLength: 100 } } },
+          },
+        },
+      },
+    },
+    async (req) => {
+      // Одно устройство — одна подписка; если на нём вошёл другой человек, подписка переходит к нему.
+      await db.query(
+        `INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth) VALUES ($1, $2, $3, $4)
+         ON CONFLICT (endpoint) DO UPDATE SET user_id = EXCLUDED.user_id, p256dh = EXCLUDED.p256dh, auth = EXCLUDED.auth`,
+        [req.user!.id, req.body.endpoint, req.body.keys.p256dh, req.body.keys.auth],
+      );
+      return { ok: true };
+    },
+  );
+
+  app.post<{ Body: { endpoint: string } }>(
+    '/push/unsubscribe',
+    { preHandler: app.authenticate, schema: { body: { type: 'object', required: ['endpoint'], properties: { endpoint: { type: 'string', maxLength: 1000 } } } } },
+    async (req) => {
+      await db.query('DELETE FROM push_subscriptions WHERE endpoint = $1 AND user_id = $2', [req.body.endpoint, req.user!.id]);
+      return { ok: true };
+    },
+  );
 
   // ---- настройка SMS у себя ----
   app.patch<{ Body: { smsEnabled: boolean } }>(

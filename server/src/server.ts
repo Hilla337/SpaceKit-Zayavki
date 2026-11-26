@@ -3,6 +3,7 @@ import { ensureBootstrapAdmin } from './bootstrap.js';
 import { config } from './config.js';
 import { createPgDb } from './db.js';
 import { MoySklad, MsWriter, syncCatalog, type MsProduct } from './moysklad.js';
+import { startPushWorker, vapidKeys, WebPushSender } from './push.js';
 import { ConsoleSmsSender, startSmsWorker } from './sms.js';
 
 if (!['none', 'console'].includes(config.smsProvider)) {
@@ -37,6 +38,16 @@ if (config.msSyncHours > 0 && process.env.MS_TOKEN) {
   const timer = setInterval(sync, config.msSyncHours * 3600_000);
   timer.unref();
   app.addHook('onClose', async () => clearInterval(timer));
+}
+
+// Push-уведомления в браузер: ключи VAPID берутся из базы (создаются при первом запуске).
+// Миграции к этому моменту уже применены (в контейнере migrate запускается перед сервером).
+try {
+  const keys = await vapidKeys(db);
+  const stopPush = startPushWorker(db, new WebPushSender(keys, config.appUrl || 'mailto:push@spacekit.local'), { onError: (err) => app.log.error({ err }, 'ошибка отправки push') });
+  app.addHook('onClose', async () => stopPush());
+} catch (err) {
+  app.log.error({ err }, 'push-уведомления не запущены');
 }
 
 const boot = await ensureBootstrapAdmin(db);

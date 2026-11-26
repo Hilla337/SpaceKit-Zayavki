@@ -190,6 +190,52 @@ function coPeople(companyId) {
     }).join('') : '<div class="xs">Пока никто не зарегистрирован</div>') + '</div>';
   }).catch(fail);
 }
+// ---------- push-уведомления на это устройство ----------
+function isIOS() { return /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1); }
+function isStandalone() { return window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true; }
+function pushSupported() { return !window.SK_DEMO && 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window; }
+function b64ToBytes(b64) { var p = '='.repeat((4 - b64.length % 4) % 4), raw = atob((b64 + p).replace(/-/g, '+').replace(/_/g, '/')), out = new Uint8Array(raw.length); for (var i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i); return out; }
+function pushSub() { return navigator.serviceWorker.ready.then(function (r) { return r.pushManager.getSubscription(); }); }
+// Состояние для настроек: 'on', 'off', 'denied', 'ios-home' (на iPhone нужно сначала добавить на экран «Домой»), 'unsupported'.
+function pushState() {
+  if (isIOS() && !isStandalone() && !window.SK_DEMO) return Promise.resolve('ios-home');
+  if (!pushSupported()) return Promise.resolve('unsupported');
+  if (Notification.permission === 'denied') return Promise.resolve('denied');
+  return pushSub().then(function (s) { return s && Notification.permission === 'granted' ? 'on' : 'off'; }).catch(function () { return 'off'; });
+}
+function enablePush() {
+  return Notification.requestPermission().then(function (perm) {
+    if (perm !== 'granted') throw new Error('Уведомления запрещены в браузере. Разрешите их в настройках сайта');
+    return Promise.all([navigator.serviceWorker.ready, api('GET', '/push/key')]);
+  }).then(function (x) {
+    return x[0].pushManager.getSubscription().then(function (old) { return old || x[0].pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(x[1].publicKey) }); });
+  }).then(function (sub) {
+    var j = sub.toJSON();
+    return api('POST', '/push/subscribe', { endpoint: j.endpoint, keys: { p256dh: j.keys.p256dh, auth: j.keys.auth } });
+  }).catch(function (e) {
+    // Ошибки браузера приходят по-английски — переводим в понятное.
+    if (e && (e.name === 'NotAllowedError' || /permission|denied/i.test(e.message || ''))) throw new Error('Браузер не дал включить уведомления. Проверьте, что они разрешены для этого сайта, и попробуйте ещё раз');
+    if (e && (e.name === 'AbortError' || /push service|registration/i.test(e.message || ''))) throw new Error('Не удалось связаться со службой уведомлений браузера. Попробуйте ещё раз чуть позже');
+    throw e;
+  });
+}
+function disablePush() {
+  return pushSub().then(function (sub) {
+    if (!sub) return;
+    var ep = sub.endpoint;
+    return sub.unsubscribe().catch(function () {}).then(function () { return S.token ? api('POST', '/push/unsubscribe', { endpoint: ep }).catch(function () {}) : null; });
+  });
+}
+function pushBlock(state) {
+  var t = {
+    on: ['Уведомления включены', 'Новые заявки, сообщения и смена статуса придут, даже когда приложение закрыто.', '<button class="btn sm" data-act="pushOff">Выключить</button>'],
+    off: ['Уведомления на этом устройстве', 'Новые заявки, сообщения и смена статуса — сразу на телефон или компьютер, даже когда приложение закрыто.', '<button class="btn sm pri" data-act="pushOn">' + ic('bell') + 'Включить</button>'],
+    denied: ['Уведомления запрещены', 'Браузер запретил уведомления для этого сайта. Разрешите их в настройках сайта (значок замка в адресной строке), затем обновите страницу.', ''],
+    'ios-home': ['Уведомления на iPhone', 'Apple присылает уведомления только приложениям на экране «Домой». Нажмите «Поделиться» внизу Safari → «На экран „Домой“», откройте приложение с иконки и включите уведомления здесь.', ''],
+    unsupported: ['Уведомления недоступны', window.SK_DEMO ? 'В демо уведомления не работают. В приложении включаются здесь одной кнопкой.' : 'Этот браузер не поддерживает уведомления. Откройте приложение в Chrome или Safari.', ''],
+  }[state];
+  return '<div class="ms" style="margin-top:14px"><div class="row" style="align-items:flex-start;gap:10px">' + ic('bell') + '<div class="sp"><div class="b">' + t[0] + '</div><div class="xs">' + t[1] + '</div>' + (t[2] ? '<div class="btns" style="margin-top:8px">' + t[2] + '</div>' : '') + '</div></div></div>';
+}
 function isStaff() { return S.me && (S.me.role === 'manager' || S.me.role === 'admin'); }
 
 // ---------- API ----------
@@ -242,7 +288,7 @@ function boot() {
   api('GET', '/me').then(function (me) { S.me = me; route(); pollNotes(); }).catch(function (e) { if (S.token) fail(e); else route(); });
 }
 function logoutLocal() { S.token = null; S.me = null; store('token', null); renderTop(); }
-function logout() { api('POST', '/auth/logout').catch(function () {}).then(function () { logoutLocal(); go('#/'); }); }
+function logout() { (pushSupported() ? disablePush().catch(function () {}) : Promise.resolve()).then(function () { return api('POST', '/auth/logout'); }).catch(function () {}).then(function () { logoutLocal(); go('#/'); }); }
 
 // ---------- верхняя панель ----------
 function renderTop() {
@@ -337,10 +383,12 @@ function viewPending() {
     '<div class="btns"><button class="btn" data-act="reloadMe">Проверить ещё раз</button><button class="btn" data-act="logout">Выйти</button></div></div></div>';
 }
 
+function fillPushBox() { var b = $('pushBox'); if (b) pushState().then(function (st) { var b2 = $('pushBox'); if (b2) b2.innerHTML = pushBlock(st); }); }
 function viewSettings() {
-  $('app').innerHTML = '<div class="wrap"><h1>Настройки</h1><div class="card"><div class="b">' + esc(S.me.name) + '</div><div class="s">' + esc(ROLE[S.me.role]) + '</div>' +
+  $('app').innerHTML = '<div class="wrap"><h1>Настройки</h1><div class="card"><div class="b">' + esc(S.me.name) + '</div><div class="s">' + esc(ROLE[S.me.role]) + '</div><div id="pushBox"></div>' +
     (S.me.role === 'customer' && S.me.smsAvailable ? '<label class="chk' + (S.me.smsEnabled ? ' on' : '') + '" data-act="toggleSms" style="margin-top:12px"><div class="box">' + (S.me.smsEnabled ? ic('check') : '') + '</div><div>SMS о заявках<div class="xs">Подтверждение, отгрузка, отмена. Уведомления в приложении остаются всегда.</div></div></label>' : '') +
     '<div class="btns"><button class="btn" data-act="changePass">' + ic('key') + 'Сменить пароль</button><button class="btn bad" data-act="logout">' + ic('logout') + 'Выйти</button></div></div></div>';
+  fillPushBox();
 }
 
 // ---------- список заявок ----------
@@ -360,7 +408,19 @@ function viewList() {
         '<div class="s">' + (role !== 'customer' ? esc(r.companyName) + ' · ' : '') + r.itemsCount + ' поз.' + (role === 'manager' && r.managerId === null ? ' · <span class="tag warn">клиент не распределён</span>' : '') + '</div></div>';
     }).join('') : '<div class="empty">' + (role === 'customer' ? 'Заявок пока нет. Нажмите «Новая заявка».' : 'Здесь пусто') + '</div>') + '</div></div>';
     $('app').innerHTML = h;
+    pushNudge();
   }).catch(fail);
+}
+// Один раз предлагаем включить уведомления (сам запрос разрешения — только по кнопке).
+function pushNudge() {
+  var later; try { later = localStorage.getItem('sk_push_later'); } catch (e) { later = '1'; }
+  if (later || !pushSupported() || Notification.permission === 'denied') return;
+  pushSub().then(function (sub) {
+    var w = document.querySelector('#app .wrap'); if (sub || !w || $('pushNudge')) return;
+    var d = document.createElement('div'); d.id = 'pushNudge'; d.className = 'note row'; d.style.flexWrap = 'wrap';
+    d.innerHTML = ic('bell') + '<span class="sp">' + (S.me.role === 'customer' ? 'Включите уведомления, чтобы сразу узнавать об ответе менеджера и отгрузке.' : 'Включите уведомления, чтобы сразу узнавать о новых заявках и сообщениях.') + '</span><button class="btn sm pri" data-act="pushOn">Включить</button><button class="btn sm" data-act="pushLater">Не сейчас</button>';
+    w.insertBefore(d, w.children[1] || null);
+  }).catch(function () {});
 }
 
 // ---------- новая заявка (заказчик) ----------
@@ -947,6 +1007,9 @@ document.addEventListener('click', function (ev) {
     case 'demoLogin': return window.SK_DEMO.login(el.getAttribute('data-phone'));
     case 'logout': return logout();
     case 'changePass': return changePass();
+    case 'pushOn': el.disabled = true; return enablePush().then(function () { toast('Уведомления включены'); if (location.hash === '#/settings') viewSettings(); else viewList(); }).catch(function (e) { el.disabled = false; fail(e); });
+    case 'pushOff': return disablePush().then(function () { toast('Уведомления на этом устройстве выключены'); viewSettings(); }).catch(fail);
+    case 'pushLater': try { localStorage.setItem('sk_push_later', '1'); } catch (e) { /* ничего */ } var pn = $('pushNudge'); if (pn) pn.remove(); return;
     case 'staffPhone': return ask('Телефон: ' + el.getAttribute('data-name'), { input: '+7 999 123-45-67', ok: 'Сохранить' }).then(function (v) { if (v) return api('PATCH', '/staff/' + id, { phone: v }).then(function () { toast('Телефон сохранён. Теперь выдайте код для пароля'); viewCompanies(); }).catch(fail); });
     case 'staffAdd': return staffAdd();
     case 'hintsLoad': return hintsLoad();

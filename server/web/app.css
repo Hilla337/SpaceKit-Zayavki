@@ -221,3 +221,6 @@ a.ext .i{width:15px;height:15px}
 .composer{flex:none;position:relative;z-index:1}
 .chat{min-height:140px}
 .emoji{max-height:150px;background:var(--card)}
+/* предложение включить уведомления: на узком экране кнопки уходят под текст */
+#pushNudge .sp{flex:1 1 220px}
+#pushNudge > .i{align-self:flex-start;margin-top:2px}
