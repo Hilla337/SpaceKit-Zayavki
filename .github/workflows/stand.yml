@@ -1,0 +1,148 @@
+# Тестовый стенд в Яндекс Облаке одной кнопкой: GitHub → Actions → «Стенд в Яндекс Облаке» → Run workflow.
+# Собирает образ приложения, кладёт его в GitHub Packages (ghcr.io), создаёт или обновляет ВМ в Яндекс Облаке
+# и ждёт, пока стенд ответит по HTTPS. Подробности и первая настройка — deploy/stand/README.md.
+#
+# Репозиторий публичный, поэтому журналы этого сценария видны всем: в них не выводятся ни секреты,
+# ни телефоны, ни ответы yc с метаданными ВМ (там лежат настройки стенда).
+name: Стенд в Яндекс Облаке
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: stand
+  cancel-in-progress: false
+
+env:
+  ZONE: ru-central1-a
+  VM: zayavki-stand
+  ADDRESS: zayavki-stand-ip
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Проверить секреты
+        env:
+          YC_SA_KEY: ${{ secrets.YC_SA_KEY }}
+          YC_FOLDER_ID: ${{ secrets.YC_FOLDER_ID }}
+          STAND_SECRET: ${{ secrets.STAND_SECRET }}
+          STAND_ADMIN_PHONE: ${{ secrets.STAND_ADMIN_PHONE }}
+          STAND_ADMIN_PASSWORD: ${{ secrets.STAND_ADMIN_PASSWORD }}
+        run: |
+          missing=""
+          for n in YC_SA_KEY YC_FOLDER_ID STAND_SECRET STAND_ADMIN_PHONE STAND_ADMIN_PASSWORD; do
+            [ -n "${!n}" ] || missing="$missing $n"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::Не заданы секреты:$missing. Settings → Secrets and variables → Actions → New repository secret. См. deploy/stand/README.md"
+            exit 1
+          fi
+          [ ${#STAND_ADMIN_PASSWORD} -ge 6 ] || { echo "::error::STAND_ADMIN_PASSWORD короче 6 символов"; exit 1; }
+
+      - name: Собрать и опубликовать образ
+        run: |
+          IMAGE="ghcr.io/${GITHUB_REPOSITORY,,}:${GITHUB_SHA::12}"
+          echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          docker build -t "$IMAGE" -t "ghcr.io/${GITHUB_REPOSITORY,,}:stand" server
+          docker push -q "$IMAGE"
+          docker push -q "ghcr.io/${GITHUB_REPOSITORY,,}:stand"
+          # ВМ скачивает образ без пароля, поэтому пакет должен быть публичным (настраивается один раз).
+          docker logout ghcr.io
+          if ! docker pull -q "$IMAGE" >/dev/null 2>&1; then
+            echo "::error::Образ не скачивается без входа. Сделайте пакет публичным: github.com/${GITHUB_REPOSITORY} → Packages → spacekit-zayavki → Package settings → Change visibility → Public. Потом запустите сценарий ещё раз."
+            exit 1
+          fi
+
+      - name: Установить и настроить yc
+        env:
+          YC_SA_KEY: ${{ secrets.YC_SA_KEY }}
+          YC_FOLDER_ID: ${{ secrets.YC_FOLDER_ID }}
+        run: |
+          curl -sSL https://storage.yandexcloud.net/yandexcloud-yc/install.sh | bash -s -- -i "$HOME/yc" -n >/dev/null
+          echo "$HOME/yc/bin" >> "$GITHUB_PATH"
+          export PATH="$HOME/yc/bin:$PATH"
+          umask 077
+          printf '%s' "$YC_SA_KEY" > "$RUNNER_TEMP/sa.json"
+          yc config profile create stand >/dev/null
+          yc config set service-account-key "$RUNNER_TEMP/sa.json"
+          yc config set folder-id "$YC_FOLDER_ID"
+          yc config set compute-default-zone "$ZONE"
+          yc resource-manager folder get "$YC_FOLDER_ID" --format json | jq -r '"Каталог: " + .name'
+
+      - name: Постоянный публичный адрес
+        run: |
+          if ! yc vpc address get --name "$ADDRESS" >/dev/null 2>&1; then
+            yc vpc address create --name "$ADDRESS" --external-ipv4 zone="$ZONE" >/dev/null
+          fi
+          IP=$(yc vpc address get --name "$ADDRESS" --format json | jq -r .external_ipv4_address.address)
+          DOMAIN="${IP//./-}.sslip.io"
+          echo "IP=$IP" >> "$GITHUB_ENV"
+          echo "DOMAIN=$DOMAIN" >> "$GITHUB_ENV"
+          echo "Адрес стенда: https://$DOMAIN"
+
+      - name: Подготовить docker-compose
+        env:
+          STAND_SECRET: ${{ secrets.STAND_SECRET }}
+          STAND_ADMIN_PHONE: ${{ secrets.STAND_ADMIN_PHONE }}
+          STAND_ADMIN_PASSWORD: ${{ secrets.STAND_ADMIN_PASSWORD }}
+          STAND_ADMIN_NAME: ${{ secrets.STAND_ADMIN_NAME }}
+          STAND_MS_TOKEN: ${{ secrets.STAND_MS_TOKEN }}
+        run: |
+          # Пароль базы и «перец» для кодов выводятся из одного секрета, чтобы не заводить их отдельно.
+          DB_PASSWORD=$(printf '%s' "db:$STAND_SECRET" | sha256sum | cut -c1-40)
+          AUTH_PEPPER=$(printf '%s' "pepper:$STAND_SECRET" | sha256sum | cut -c1-64)
+          echo "::add-mask::$DB_PASSWORD"
+          echo "::add-mask::$AUTH_PEPPER"
+          export STAND_IMAGE="$IMAGE" STAND_DOMAIN="$DOMAIN" STAND_APP_URL="https://$DOMAIN"
+          export STAND_DB_PASSWORD="$DB_PASSWORD" STAND_AUTH_PEPPER="$AUTH_PEPPER"
+          export STAND_DATABASE_URL="postgres://zayavki:$DB_PASSWORD@db:5432/zayavki"
+          export STAND_ADMIN_NAME="${STAND_ADMIN_NAME:-Администратор}"
+          if [ -n "$STAND_MS_TOKEN" ]; then export STAND_MS_SYNC_HOURS=6; else export STAND_MS_SYNC_HOURS=0; fi
+          umask 077
+          python3 deploy/stand/render.py deploy/stand/docker-compose.yml "$RUNNER_TEMP/compose.yml"
+          echo "docker-compose готов (содержимое не выводится: в нём секреты)"
+
+      - name: Создать или обновить ВМ
+        run: |
+          if yc compute instance get --name "$VM" >/dev/null 2>&1; then
+            # Новые метаданные — и ВМ сама перезапускает контейнеры с новым образом. База остаётся на диске.
+            yc compute instance update --name "$VM" --metadata-from-file docker-compose="$RUNNER_TEMP/compose.yml" >/dev/null
+            echo "ВМ обновлена"
+          else
+            SUBNET=$(yc vpc subnet list --format json | jq -r --arg z "$ZONE" '[.[] | select(.zone_id == $z)][0].id // empty')
+            if [ -z "$SUBNET" ]; then
+              yc vpc network create --name zayavki-net >/dev/null
+              SUBNET=$(yc vpc subnet create --name zayavki-subnet --network-name zayavki-net --zone "$ZONE" --range 10.10.0.0/24 --format json | jq -r .id)
+            fi
+            yc compute instance create \
+              --name "$VM" --zone "$ZONE" \
+              --platform standard-v3 --cores 2 --core-fraction 20 --memory 2 \
+              --create-boot-disk image-folder-id=standard-images,image-family=container-optimized-image,size=20,type=network-hdd \
+              --network-interface subnet-id="$SUBNET",nat-ip-version=ipv4,nat-address="$IP" \
+              --metadata-from-file docker-compose="$RUNNER_TEMP/compose.yml" \
+              --metadata serial-port-enable=0 >/dev/null
+            echo "ВМ создана"
+          fi
+          rm -f "$RUNNER_TEMP/compose.yml" "$RUNNER_TEMP/sa.json"
+
+      - name: Дождаться стенда
+        run: |
+          for i in $(seq 1 60); do
+            if curl -fsS -m 10 "https://$DOMAIN/health/db" >/dev/null 2>&1; then
+              echo "Стенд работает: https://$DOMAIN"
+              echo "### Стенд работает: https://$DOMAIN" >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::За 10 минут стенд не ответил по https://$DOMAIN. Первый запуск ВМ и выпуск сертификата иногда идут дольше — запустите сценарий ещё раз через несколько минут."
+          exit 1

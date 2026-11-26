@@ -1,0 +1,51 @@
+# Стенд в Яндекс Облаке: одна ВМ на Container Optimized Image запускает этот файл (метаданные docker-compose).
+# Значения в двойных подчёркиваниях подставляет сценарий .github/workflows/stand.yml (render.py), секреты — из GitHub Secrets.
+version: '3.7'
+services:
+  db:
+    image: postgres:16-alpine
+    restart: always
+    environment:
+      POSTGRES_DB: zayavki
+      POSTGRES_USER: zayavki
+      POSTGRES_PASSWORD: __DB_PASSWORD__
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  app:
+    image: __IMAGE__
+    restart: always
+    depends_on:
+      - db
+    environment:
+      NODE_ENV: production
+      PORT: '8080'
+      DATABASE_URL: __DATABASE_URL__
+      AUTH_PEPPER: __AUTH_PEPPER__
+      TRUST_PROXY_HOPS: '1'
+      APP_URL: __APP_URL__
+      SMS_PROVIDER: none
+      BOOTSTRAP_ADMIN_PHONE: __ADMIN_PHONE__
+      BOOTSTRAP_ADMIN_PASSWORD: __ADMIN_PASSWORD__
+      BOOTSTRAP_ADMIN_NAME: __ADMIN_NAME__
+      # Каталог из МойСклад только читается; запись (заказы, отгрузки) на стенде выключена.
+      MS_TOKEN: __MS_TOKEN__
+      MS_SYNC_HOURS: __MS_SYNC_HOURS__
+      MS_WRITE: '0'
+
+  caddy:
+    image: caddy:2-alpine
+    restart: always
+    depends_on:
+      - app
+    ports:
+      - '80:80'
+      - '443:443'
+    # Сертификат HTTPS выпускается сам (Let's Encrypt) на адрес вида 1-2-3-4.sslip.io.
+    command: caddy reverse-proxy --from __DOMAIN__ --to app:8080
+    volumes:
+      - caddy_data:/data
+
+volumes:
+  pgdata: {}
+  caddy_data: {}
