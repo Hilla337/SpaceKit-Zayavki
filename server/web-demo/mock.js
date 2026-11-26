@@ -5,7 +5,8 @@
  */
 (function () {
   'use strict';
-  var KEY = 'sk_demo_db_v1';
+  var KEY = 'sk_demo_db_v2';
+  var DEMO_PASSWORD = '123456';
   var ROLES = [['Заказчик (Профит Рум)', '+79991110001'], ['Менеджер Филипп Инилеев', '+79990000001'], ['Менеджер Татьяна Чех', '+79990000002'], ['Админ Илья', '+79990000009'], ['Новый заказчик', '+79150001122']];
   window.SK_DEMO = { roles: ROLES };
 
@@ -183,31 +184,50 @@
   // ---------- маршруты ----------
   function E(status, error, extra) { var e = new Error(error); e.status = status; e.body = Object.assign({ error: error }, extra || {}); return e; }
   function me(token) { var id = D.sessions[token]; var u = id && user(id); if (!u || u.status === 'blocked') throw E(401, 'unauthorized'); return u; }
+  function normPhone(raw) { var d = String(raw || '').replace(/\D/g, ''); if (d.length === 11 && d[0] === '8') d = '7' + d.slice(1); else if (d.length === 10) d = '7' + d; return '+' + d; }
+  function session(u) { var token = 'demo-' + Math.random().toString(36).slice(2); D.sessions[token] = u.id; return { token: token, user: { id: u.id, name: u.name, role: u.role, status: u.status, companyId: u.companyId } }; }
+  // Быстрый вход в демо: за существующего человека — сразу, за нового — экран регистрации с подставленным номером.
+  window.SK_DEMO.login = function (phone) {
+    var u = D.users.filter(function (x) { return x.phone === phone; })[0];
+    if (!u) { if (window.logoutLocal) logoutLocal(); S.login = { step: 'register', phone: phone }; return viewLogin('register', { phone: phone }); }
+    var r = session(u); save(); loggedIn(r);
+  };
   function chatReq(u, id) { var r = byId(D.requests, Number(id)); if (!r || !canViewRequest(u, r) || u.role === 'picker') throw E(404, 'not_found'); return r; }
 
   var routes = [
-    ['POST', /^\/auth\/request-code$/, function (q) {
-      var phone = (q.body.phone || '').replace(/\D/g, '').replace(/^8(\d{10})$/, '7$1'); if (phone.length === 10) phone = '7' + phone;
-      if (phone.length < 11) throw E(400, 'bad_phone');
-      var code = String(Math.floor(1000 + Math.random() * 9000)); D.codes['+' + phone] = code;
-      return { ok: true, expiresInSec: 300, demoCode: code };
+    ['POST', /^\/auth\/login$/, function (q) {
+      var u = D.users.filter(function (x) { return x.phone === normPhone(q.body.phone); })[0];
+      if (!u || (u.pw || DEMO_PASSWORD) !== q.body.password) throw E(401, 'invalid_credentials');
+      return session(u);
     }, true],
-    ['POST', /^\/auth\/verify$/, function (q) {
-      var phone = '+' + (q.body.phone || '').replace(/\D/g, '').replace(/^8(\d{10})$/, '7$1').replace(/^(\d{10})$/, '7$1');
-      if (D.codes[phone] !== q.body.code) throw E(401, 'invalid_code');
-      var u = D.users.filter(function (x) { return x.phone === phone; })[0];
-      if (!u) {
-        if (!q.body.name || !q.body.company) throw E(422, 'profile_required');
-        var c = { id: ++D.seq.company, name: q.body.company.trim(), status: 'pending', managerId: null, ms: null, vat: false };
-        D.companies.push(c);
-        u = { id: ++D.seq.user, name: q.body.name.trim(), role: 'customer', phone: phone, status: 'pending', companyId: c.id, sms: true };
-        D.users.push(u);
-      }
-      delete D.codes[phone];
-      var token = 'demo-' + Math.random().toString(36).slice(2); D.sessions[token] = u.id;
-      return { token: token, user: { id: u.id, name: u.name, role: u.role, status: u.status, companyId: u.companyId } };
+    ['POST', /^\/auth\/register$/, function (q) {
+      var phone = normPhone(q.body.phone); if (phone.length < 12) throw E(400, 'bad_phone');
+      if ((q.body.password || '').length < 6) throw E(400, 'bad_password');
+      if (D.users.some(function (x) { return x.phone === phone; })) throw E(409, 'phone_taken');
+      var c = { id: ++D.seq.company, name: q.body.company.trim(), status: 'pending', managerId: null, ms: null, vat: false };
+      D.companies.push(c);
+      var u = { id: ++D.seq.user, name: q.body.name.trim(), role: 'customer', phone: phone, status: 'pending', companyId: c.id, sms: true, pw: q.body.password };
+      D.users.push(u);
+      return session(u);
     }, true],
-    ['GET', /^\/me$/, function (q, u) { return { id: u.id, name: u.name, role: u.role, status: u.status, companyId: u.companyId, unreadNotifications: D.notes.filter(function (n) { return n.userId === u.id && !n.read; }).length, smsEnabled: u.sms }; }],
+    ['POST', /^\/auth\/reset$/, function (q) {
+      var phone = normPhone(q.body.phone), u = D.users.filter(function (x) { return x.phone === phone; })[0];
+      if (!u || D.codes[phone] !== q.body.code) throw E(401, 'invalid_code');
+      delete D.codes[phone]; u.pw = q.body.password; return session(u);
+    }, true],
+    ['POST', /^\/users\/(\d+)\/reset-code$/, function (q, u, m) {
+      var t = user(Number(m[1])), c = t && t.companyId ? company(t.companyId) : null;
+      if (!t || !(u.role === 'admin' || (u.role === 'manager' && t.role === 'customer' && c && c.managerId === u.id))) throw E(404, 'not_found');
+      var code = String(Math.floor(100000 + Math.random() * 900000)); D.codes[t.phone] = code;
+      return { code: code, phone: t.phone, name: t.name, expiresAt: now(-1440) };
+    }],
+    ['POST', /^\/me\/password$/, function (q, u) { if ((u.pw || DEMO_PASSWORD) !== q.body.oldPassword) throw E(401, 'invalid_credentials'); u.pw = q.body.newPassword; return { ok: true }; }],
+    ['GET', /^\/companies\/(\d+)\/users$/, function (q, u, m) {
+      var c = company(Number(m[1])); if (!c || !canViewCompany(u, c)) throw E(404, 'not_found'); if (!(u.role === 'admin' || c.managerId === u.id)) throw E(403, 'forbidden');
+      return D.users.filter(function (x) { return x.companyId === c.id; }).map(function (x) { return { id: x.id, name: x.name, phone: x.phone, status: x.status }; });
+    }],
+    ['GET', /^\/staff$/, function (q, u) { if (u.role !== 'admin') throw E(403, 'forbidden'); return D.users.filter(function (x) { return x.role !== 'customer'; }).map(function (x) { return { id: x.id, name: x.name, phone: x.phone, role: x.role, hasPassword: true }; }); }],
+    ['GET', /^\/me$/, function (q, u) { return { id: u.id, name: u.name, role: u.role, status: u.status, companyId: u.companyId, unreadNotifications: D.notes.filter(function (n) { return n.userId === u.id && !n.read; }).length, smsEnabled: u.sms, smsAvailable: false }; }],
     ['PATCH', /^\/me$/, function (q, u) { u.sms = !!q.body.smsEnabled; return { smsEnabled: u.sms }; }],
     ['POST', /^\/auth\/logout$/, function (q) { delete D.sessions[q.token]; return null; }],
     ['GET', /^\/notifications$/, function (q, u) { return D.notes.filter(function (n) { return n.userId === u.id; }).sort(function (a, b) { return b.id - a.id; }).slice(0, 100).map(function (n) { return { id: n.id, requestId: n.requestId, text: n.text, createdAt: n.createdAt, read: n.read }; }); }],

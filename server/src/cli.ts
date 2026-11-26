@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import { normalizePhone } from './auth.js';
+import { generateCode, hashCode, normalizePhone, RESET_TTL_MS } from './auth.js';
 import { config } from './config.js';
 import { createPgDb } from './db.js';
 import { applyHints, loadHints, normalizeName, suggestHints } from './hints.js';
@@ -8,6 +8,7 @@ import { MoySklad, syncCatalog, type MsCounterparty, type MsProduct } from './mo
 const usage = `Команды:
   staff:set-phone "<Имя>" <телефон>        задать телефон существующему сотруднику (менеджеру, сборщику, админу)
   staff:add <manager|picker|admin> "<Имя>" <телефон>   добавить сотрудника
+  staff:reset-code "<Имя>"                 выдать код, по которому сотрудник задаст пароль (экран «Забыли пароль?»)
   clients:load-hints <файл.csv>            загрузить «менеджер;клиент» (по строке, разделитель ;, # — комментарий)
   clients:apply-hints                      назначить менеджеров уже существующим компаниям (только точные совпадения)
   clients:suggest                          показать приблизительные совпадения для проверки (ничего не меняет)
@@ -37,6 +38,17 @@ async function main(): Promise<void> {
       if (!['manager', 'picker', 'admin'].includes(role ?? '') || !name || !phone) throw new Error(usage);
       await db.query(`INSERT INTO users (phone, name, role, status) VALUES ($1, $2, $3::user_role, 'approved')`, [phone, name, role]);
       console.log(`Добавлен ${role} «${name}» (${phone})`);
+    } else if (cmd === 'staff:reset-code') {
+      const [name] = args;
+      if (!name) throw new Error(usage);
+      const r = await db.query<{ phone: string | null }>(`SELECT phone FROM users WHERE name = $1 AND role IN ('manager', 'picker', 'admin')`, [name]);
+      if (r.rows.length !== 1) throw new Error(`Найдено сотрудников с именем «${name}»: ${r.rows.length}. Нужен ровно один.`);
+      const phone = r.rows[0]!.phone;
+      if (!phone) throw new Error('У сотрудника нет телефона: сначала staff:set-phone');
+      const code = generateCode();
+      await db.query('UPDATE login_codes SET used = true WHERE phone = $1 AND used = false', [phone]);
+      await db.query('INSERT INTO login_codes (phone, code_hash, expires_at) VALUES ($1, $2, $3)', [phone, hashCode(config.authPepper, phone, code), new Date(Date.now() + RESET_TTL_MS)]);
+      console.log(`Код для «${name}» (${phone}): ${code}. Действует сутки. Сотрудник открывает «Забыли пароль?», вводит телефон, код и новый пароль.`);
     } else if (cmd === 'clients:load-hints') {
       const file = args[0];
       if (!file) throw new Error(usage);

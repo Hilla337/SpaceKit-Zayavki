@@ -3,11 +3,8 @@ import assert from 'node:assert/strict';
 import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../src/app.js';
 import type { Db } from '../src/db.js';
-import type { CodeSender } from '../src/sender.js';
+import { loginAs, nextIp, register, TEST_PASSWORD } from './auth-helper.js';
 import { createTestDb } from './db-helper.js';
-
-const codes = new Map<string, string>();
-const sender: CodeSender = { async send(phone, code) { codes.set(phone, code); } };
 
 let now = new Date('2026-12-01T10:00:00Z');
 let db: Db;
@@ -19,7 +16,7 @@ const objectOk = { street: 'Нижние Мнёвники', house: '7', floor: '
 
 before(async () => {
   db = await createTestDb();
-  app = buildApp({ db, sender, pepper: 'test', clock: () => now, trustProxy: 1 });
+  app = buildApp({ db, pepper: 'test', clock: () => now, trustProxy: 1 });
   // Менеджеры 1 (Филипп) и 2 (Татьяна) уже есть из миграции; даём им телефоны, добавляем админа и сборщика.
   await db.query(`UPDATE users SET phone = $1 WHERE name = 'Филипп Инилеев'`, [PH.phil]);
   await db.query(`UPDATE users SET phone = $1 WHERE name = 'Татьяна Чех'`, [PH.tanya]);
@@ -28,92 +25,113 @@ before(async () => {
 });
 after(async () => { await app.close(); await db.close(); });
 
-
-let ipCounter = 0;
-/** Запрос кода; по умолчанию каждый раз с нового IP, чтобы тесты не упирались в лимит по адресу. */
-const rc = (phone: string, ip = `10.0.0.${++ipCounter}`) =>
-  app.inject({ method: 'POST', url: '/auth/request-code', payload: { phone }, headers: { 'x-forwarded-for': ip } });
-
-async function login(phone: string, profile?: { name: string; company: string }): Promise<string> {
-  const sent = await rc(phone);
-  assert.equal(sent.statusCode, 200, sent.body);
-  const res = await app.inject({ method: 'POST', url: '/auth/verify', payload: { phone, code: codes.get(phone), ...profile } });
-  assert.equal(res.statusCode, 200, res.body);
-  return res.json().token as string;
-}
-
+const login = (phone: string): Promise<string> => loginAs(app, db, phone);
+const tryLogin = (phone: string, password: string, ip = nextIp()) =>
+  app.inject({ method: 'POST', url: '/auth/login', payload: { phone, password }, headers: { 'x-forwarded-for': ip } });
+const reset = (phone: string, code: string, password: string) =>
+  app.inject({ method: 'POST', url: '/auth/reset', payload: { phone, code, password }, headers: { 'x-forwarded-for': nextIp() } });
 const call = (token: string, method: 'GET' | 'POST' | 'PATCH', url: string, payload?: unknown) =>
   app.inject({ method, url, payload: payload as object | undefined, headers: { authorization: `Bearer ${token}` } });
 
 let phil: string, tanya: string, admin: string, picker: string, ann: string, bob: string;
 let annCompany: number, bobCompany: number;
 
-test('вход по телефону: регистрация нового заказчика создаёт отдельную компанию в ожидании', async () => {
+test('регистрация по телефону и паролю создаёт отдельную компанию в ожидании; второй раз тот же номер не зарегистрировать', async () => {
   phil = await login(PH.phil);
   tanya = await login(PH.tanya);
   admin = await login(PH.admin);
   picker = await login(PH.picker);
 
-  // Без имени и компании новому номеру войти нельзя, а код при этом не тратится.
-  await rc(PH.ann);
-  const noProfile = await app.inject({ method: 'POST', url: '/auth/verify', payload: { phone: PH.ann, code: codes.get(PH.ann) } });
-  assert.equal(noProfile.statusCode, 422);
-  const ok = await app.inject({ method: 'POST', url: '/auth/verify', payload: { phone: PH.ann, code: codes.get(PH.ann), name: 'Анна', company: 'Ремонт плюс' } });
-  assert.equal(ok.statusCode, 200);
+  assert.equal((await register(app, PH.ann, 'Анна', 'Ремонт плюс', '123')).statusCode, 400, 'короткий пароль');
+  const ok = await register(app, '8 (999) 111-00-01', 'Анна', 'Ремонт плюс');
+  assert.equal(ok.statusCode, 201, ok.body);
   ann = ok.json().token;
   assert.equal(ok.json().user.status, 'pending');
+  assert.equal((await register(app, PH.ann, 'Не Анна', 'Другая')).json().error, 'phone_taken');
+  // Пароль хранится только хэшем.
+  const h = (await db.query<{ password_hash: string }>('SELECT password_hash FROM users WHERE phone = $1', [PH.ann])).rows[0]!.password_hash;
+  assert.match(h, /^scrypt\$/);
+  assert.ok(!h.includes(TEST_PASSWORD));
 
   // Тоже «Ремонт плюс», но другой человек: получает свою отдельную компанию, а не чужую.
-  bob = await login(PH.bob, { name: 'Борис', company: 'Ремонт плюс' });
-  const a = (await call(ann, 'GET', '/me')).json();
-  const b = (await call(bob, 'GET', '/me')).json();
-  assert.notEqual(a.companyId, b.companyId);
-  annCompany = a.companyId;
-  bobCompany = b.companyId;
+  const b = await register(app, PH.bob, 'Борис', 'Ремонт плюс');
+  bob = b.json().token;
+  annCompany = (await call(ann, 'GET', '/me')).json().companyId;
+  bobCompany = (await call(bob, 'GET', '/me')).json().companyId;
+  assert.notEqual(annCompany, bobCompany);
 });
 
-test('неверные коды: после пяти попыток код блокируется, верный код уже не подойдёт', async () => {
+test('вход: верный пароль пускает, неверный и чужой номер отвечают одинаково; у сотрудника без пароля входа нет', async () => {
+  assert.equal((await tryLogin(PH.ann, TEST_PASSWORD)).statusCode, 200);
+  const wrong = await tryLogin(PH.ann, 'не тот');
+  const nobody = await tryLogin('+79990001234', 'не тот');
+  assert.deepEqual([wrong.statusCode, wrong.json().error], [401, 'invalid_credentials']);
+  assert.deepEqual([nobody.statusCode, nobody.json().error], [401, 'invalid_credentials']);
+  await db.query(`INSERT INTO users (phone, name, role, status) VALUES ('+79990007777', 'Новый менеджер', 'manager', 'approved')`);
+  assert.equal((await tryLogin('+79990007777', '')).statusCode, 401, 'пароль не задан — войти нельзя');
+});
+
+test('после 10 неверных паролей номер закрыт на 15 минут, потом снова можно', async () => {
   const phone = '+79995550000';
-  await rc(phone);
-  const right = codes.get(phone)!;
-  const wrong = right === '0000' ? '1111' : '0000';
-  for (let i = 0; i < 5; i++) {
-    const r = await app.inject({ method: 'POST', url: '/auth/verify', payload: { phone, code: wrong, name: 'X', company: 'Y' } });
-    assert.equal(r.statusCode, 401);
-  }
-  const late = await app.inject({ method: 'POST', url: '/auth/verify', payload: { phone, code: right, name: 'X', company: 'Y' } });
-  assert.equal(late.statusCode, 429);
+  assert.equal((await register(app, phone, 'X', 'Y')).statusCode, 201);
+  for (let i = 0; i < 10; i++) assert.equal((await tryLogin(phone, 'неверный')).statusCode, 401);
+  const locked = await tryLogin(phone, TEST_PASSWORD);
+  assert.deepEqual([locked.statusCode, locked.json().error], [429, 'locked'], 'даже верный пароль не помогает');
+  now = new Date(now.getTime() + 16 * 60_000);
+  assert.equal((await tryLogin(phone, TEST_PASSWORD)).statusCode, 200);
 });
 
-test('больше трёх кодов на номер за десять минут нельзя', async () => {
-  const phone = '+79996660000';
+test('с одного IP не больше 30 попыток за 15 минут; подделанный заголовок лимит не обходит', async () => {
   const statuses: number[] = [];
-  for (let i = 0; i < 4; i++) statuses.push((await rc(phone)).statusCode);
-  assert.deepEqual(statuses, [200, 200, 200, 429]);
-});
-
-test('с одного IP не больше десяти запросов кода в час; подделанный заголовок лимит не обходит', async () => {
-  const statuses: number[] = [];
-  for (let i = 0; i < 11; i++) statuses.push((await rc(`+7999888${String(i).padStart(4, '0')}`, '203.0.113.7')).statusCode);
-  assert.deepEqual(statuses, [...Array(10).fill(200), 429]);
-
+  for (let i = 0; i < 31; i++) statuses.push((await tryLogin(`+7999888${String(i).padStart(4, '0')}`, 'x', '203.0.113.7')).statusCode);
+  assert.deepEqual(statuses, [...Array(30).fill(401), 429]);
   // Клиент дописывает в заголовок чужой адрес, но доверяем только ближайшему прокси, поэтому счёт идёт по настоящему.
-  const spoof = await app.inject({
-    method: 'POST',
-    url: '/auth/request-code',
-    payload: { phone: '+79998889999' },
-    headers: { 'x-forwarded-for': '1.2.3.4, 203.0.113.7' },
-  });
+  const spoof = await app.inject({ method: 'POST', url: '/auth/login', payload: { phone: PH.ann, password: TEST_PASSWORD }, headers: { 'x-forwarded-for': '1.2.3.4, 203.0.113.7' } });
   assert.equal(spoof.statusCode, 429);
 });
 
-test('код живёт пять минут', async () => {
-  const phone = '+79997770000';
-  await rc(phone);
-  const code = codes.get(phone);
-  now = new Date(now.getTime() + 6 * 60_000);
-  const r = await app.inject({ method: 'POST', url: '/auth/verify', payload: { phone, code, name: 'X', company: 'Y' } });
-  assert.equal(r.statusCode, 401);
+test('сброс пароля: код выдаёт менеджер своего клиента или админ; код одноразовый, живёт сутки, 5 попыток', async () => {
+  // Компания Анны пока ничья: Филипп её не ведёт и код выдать не может.
+  const annId = (await call(ann, 'GET', '/me')).json().id as number;
+  assert.equal((await call(phil, 'POST', `/users/${annId}/reset-code`)).statusCode, 404);
+  assert.equal((await call(ann, 'POST', `/users/${annId}/reset-code`)).statusCode, 404, 'заказчик сам себе код не выдаёт');
+  const issued = await call(admin, 'POST', `/users/${annId}/reset-code`);
+  assert.equal(issued.statusCode, 200, issued.body);
+  const { code } = issued.json();
+  assert.match(code, /^\d{6}$/);
+
+  const wrongCode = code === '000000' ? '111111' : '000000';
+  assert.equal((await reset(PH.ann, wrongCode, 'новый-пароль')).statusCode, 401);
+  const ok = await reset(PH.ann, code, 'новый-пароль');
+  assert.equal(ok.statusCode, 200, ok.body);
+  assert.equal((await call(ann, 'GET', '/me')).statusCode, 401, 'старые входы закрыты после смены пароля');
+  ann = ok.json().token;
+  assert.equal((await reset(PH.ann, code, 'ещё-один')).statusCode, 401, 'код одноразовый');
+  assert.equal((await tryLogin(PH.ann, 'новый-пароль')).statusCode, 200);
+
+  // Сотрудник без пароля: админ выдаёт код, сотрудник задаёт пароль сам.
+  const mgrId = (await db.query<{ id: number }>(`SELECT id FROM users WHERE phone = '+79990007777'`)).rows[0]!.id;
+  const c2 = (await call(admin, 'POST', `/users/${mgrId}/reset-code`)).json().code;
+  assert.equal((await call(phil, 'POST', `/users/${mgrId}/reset-code`)).statusCode, 404, 'менеджер не выдаёт коды сотрудникам');
+  assert.equal((await reset('+79990007777', c2, 'пароль-менеджера')).statusCode, 200);
+
+  // Попытки и срок жизни.
+  const c3 = (await call(admin, 'POST', `/users/${annId}/reset-code`)).json().code as string;
+  const bad3 = c3 === '000000' ? '111111' : '000000';
+  for (let i = 0; i < 5; i++) await reset(PH.ann, bad3, 'x-пароль');
+  assert.equal((await reset(PH.ann, c3, 'x-пароль')).statusCode, 429, 'после 5 ошибок код сгорел');
+  const c4 = (await call(admin, 'POST', `/users/${annId}/reset-code`)).json().code as string;
+  now = new Date(now.getTime() + 25 * 3600_000);
+  assert.equal((await reset(PH.ann, c4, 'x-пароль')).statusCode, 401, 'через сутки код недействителен');
+});
+
+test('смена своего пароля: нужен старый, остальные устройства разлогиниваются', async () => {
+  const other = await loginAs(app, db, PH.tanya);
+  assert.equal((await call(tanya, 'POST', '/me/password', { oldPassword: 'не тот', newPassword: 'новый-123' })).statusCode, 401);
+  assert.equal((await call(tanya, 'POST', '/me/password', { oldPassword: TEST_PASSWORD, newPassword: 'новый-123' })).statusCode, 200);
+  assert.equal((await call(tanya, 'GET', '/me')).statusCode, 200, 'текущая сессия осталась');
+  assert.equal((await call(other, 'GET', '/me')).statusCode, 401, 'другое устройство разлогинено');
+  assert.equal((await tryLogin(PH.tanya, 'новый-123')).statusCode, 200);
 });
 
 test('без токена и с чужим токеном доступа нет', async () => {

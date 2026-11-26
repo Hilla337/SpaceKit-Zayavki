@@ -3,23 +3,16 @@ import assert from 'node:assert/strict';
 import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../src/app.js';
 import type { Db } from '../src/db.js';
-import type { CodeSender } from '../src/sender.js';
+import { loginAs } from './auth-helper.js';
 import { createTestDb } from './db-helper.js';
 
-const codes = new Map<string, string>();
-const sender: CodeSender = { async send(phone, code) { codes.set(phone, code); } };
 let db: Db;
 let app: FastifyInstance;
 let ip = 0;
 let phil: string, tanya: string, admin: string, picker: string, ann: string;
 let reqId: number;
 
-async function login(phone: string): Promise<string> {
-  await app.inject({ method: 'POST', url: '/auth/request-code', payload: { phone }, headers: { 'x-forwarded-for': `10.7.0.${++ip}` } });
-  const r = await app.inject({ method: 'POST', url: '/auth/verify', payload: { phone, code: codes.get(phone) } });
-  assert.equal(r.statusCode, 200, r.body);
-  return r.json().token;
-}
+const login = (phone: string): Promise<string> => loginAs(app, db, phone);
 const call = (t: string, method: 'GET' | 'POST' | 'PATCH' | 'DELETE', url: string, payload?: unknown) =>
   app.inject({ method, url, payload: payload as object | undefined, headers: { authorization: `Bearer ${t}` } });
 const upload = (t: string, data: Buffer, type: string, query = 'name=photo.jpg') =>
@@ -28,7 +21,7 @@ const list = async (t: string) => (await call(t, 'GET', `/requests/${reqId}/mess
 
 before(async () => {
   db = await createTestDb();
-  app = buildApp({ db, sender, pepper: 'test', trustProxy: 1 });
+  app = buildApp({ db, pepper: 'test', trustProxy: 1 });
   await db.query(`UPDATE users SET phone = '+79990000001' WHERE name = 'Филипп Инилеев'`);
   await db.query(`UPDATE users SET phone = '+79990000002' WHERE name = 'Татьяна Чех'`);
   await db.query(`INSERT INTO users (phone, name, role, status) VALUES ('+79990000009', 'Админ', 'admin', 'approved'), ('+79990000008', 'Сборщик', 'picker', 'approved')`);

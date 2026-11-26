@@ -13,7 +13,7 @@ export const config = {
   get databaseUrl(): string {
     return required('DATABASE_URL');
   },
-  /** Секрет для хэширования кодов входа. В боевой среде обязателен. */
+  /** Секрет для хэширования кодов сброса пароля. В боевой среде обязателен. */
   get authPepper(): string {
     if (isProduction) return required('AUTH_PEPPER');
     return process.env.AUTH_PEPPER ?? 'dev-only-pepper';
@@ -22,8 +22,8 @@ export const config = {
   trustProxyHops: Number(process.env.TRUST_PROXY_HOPS ?? 1),
   /** Ссылка на приложение, её добавляем в конец SMS (необязательно). */
   appUrl: process.env.APP_URL,
-  smsProvider: process.env.SMS_PROVIDER ?? 'console',
-  codeProvider: process.env.CODE_PROVIDER ?? 'console',
+  /** SMS платные, поэтому в боевой среде по умолчанию выключены ('none'): уведомления остаются в приложении. */
+  smsProvider: process.env.SMS_PROVIDER ?? (isProduction ? 'none' : 'console'),
   /** Запись в МойСклад включается явно: MS_WRITE=1. Токен MS_TOKEN, юрлицо и склад по ID. */
   msWrite: process.env.MS_WRITE === '1',
   msOrganizationId: process.env.MS_ORGANIZATION_ID ?? '',

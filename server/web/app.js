@@ -13,7 +13,9 @@ var OBJ_F = [
   ['district', 'Район', 0], ['parking', 'Паркинг', 1], ['pass', 'Пропуск', 1], ['dominfo', 'Дополнительная информация', 0],
 ];
 var ERR = {
-  bad_phone: 'Проверьте номер телефона', too_many_requests: 'Слишком много запросов кода. Попробуйте позже', invalid_code: 'Неверный или устаревший код',
+  bad_phone: 'Проверьте номер телефона', too_many_requests: 'Слишком много попыток. Попробуйте через 15 минут', invalid_code: 'Неверный или устаревший код',
+  invalid_credentials: 'Неверный телефон или пароль. Если не задавали пароль или забыли его — нажмите «Забыли пароль?»', locked: 'Слишком много неверных паролей. Вход на этот номер закрыт на 15 минут',
+  phone_taken: 'Этот номер уже зарегистрирован. Войдите или нажмите «Забыли пароль?»', no_phone: 'У человека не указан телефон',
   too_many_attempts: 'Слишком много попыток. Запросите новый код', blocked: 'Доступ закрыт', send_failed: 'Не удалось отправить код',
   forbidden: 'Нет прав на это действие', not_found: 'Не найдено', unauthorized: 'Войдите заново', comment_required: 'Нужен комментарий',
   invalid_transition: 'Сейчас это действие недоступно', unpriced_items: 'Не у всех позиций есть товар и цена', not_in_work: 'Заявка не в работе',
@@ -64,6 +66,54 @@ function ask(title, o) {
     document.body.appendChild(bg);
     var f = $('askIn') || bg.querySelector('[data-ask=yes]'); if (f) f.focus();
   });
+}
+function changePass() {
+  var bg = document.createElement('div'); bg.className = 'modal-bg';
+  bg.innerHTML = '<div class="modal"><h1 style="font-size:19px;margin:0 0 10px">Сменить пароль</h1>' +
+    '<div class="f"><label>Текущий пароль</label><input id="cpOld" type="password" autocomplete="current-password"></div>' +
+    '<div class="f"><label>Новый пароль <span class="xs">не короче 6 символов</span></label><input id="cpNew" type="password" autocomplete="new-password"></div>' +
+    '<div class="f"><label>Новый пароль ещё раз</label><input id="cpNew2" type="password" autocomplete="new-password"></div>' +
+    '<div class="btns" style="justify-content:flex-end"><button class="btn" id="cpNo">Отмена</button><button class="btn pri" id="cpYes">Сохранить</button></div></div>';
+  document.body.appendChild(bg); $('cpOld').focus();
+  bg.addEventListener('click', function (e) {
+    if (e.target === bg || e.target.id === 'cpNo') return bg.remove();
+    if (e.target.id !== 'cpYes') return;
+    var n = $('cpNew').value;
+    if (n.length < 6) return toast('Пароль не короче 6 символов', true);
+    if (n !== $('cpNew2').value) return toast('Пароли не совпадают', true);
+    api('POST', '/me/password', { oldPassword: $('cpOld').value, newPassword: n }).then(function () { bg.remove(); toast('Пароль изменён. На других устройствах нужно войти заново'); }).catch(function (er) { fail(er.code === 'invalid_credentials' ? new Error('Текущий пароль неверный') : er); });
+  });
+}
+// Код сброса пароля: менеджер сам отправляет его клиенту (WhatsApp, звонок), это бесплатно.
+function resetCode(userId, name) {
+  return ask('Выдать код сброса пароля?', { text: name + ' сможет задать новый пароль на экране «Забыли пароль?». Прежний код, если был, перестанет действовать.', ok: 'Выдать код' }).then(function (yes) {
+    if (!yes) return;
+    return api('POST', '/users/' + userId + '/reset-code').then(function (x) {
+      var code = x.code.slice(0, 3) + ' ' + x.code.slice(3);
+      var text = 'Код для входа в приложение SpaceKit: ' + x.code + '. Откройте «Забыли пароль?», введите телефон ' + x.phone + ', код и новый пароль. Код действует сутки.';
+      var bg = document.createElement('div'); bg.className = 'modal-bg';
+      bg.innerHTML = '<div class="modal"><h1 style="font-size:19px;margin:0 0 6px">Код для ' + esc(x.name) + '</h1><div class="code" style="margin:10px 0;font-weight:700">' + esc(code) + '</div>' +
+        '<p class="s">Отправьте человеку этот текст в WhatsApp или продиктуйте по телефону. Код действует сутки, сработает один раз.</p><textarea class="inp" id="rcText" rows="3" readonly>' + esc(text) + '</textarea>' +
+        '<div class="btns" style="justify-content:flex-end"><button class="btn" id="rcCopy">Скопировать текст</button><button class="btn pri" id="rcOk">Готово</button></div></div>';
+      document.body.appendChild(bg);
+      bg.addEventListener('click', function (e) {
+        if (e.target === bg || e.target.id === 'rcOk') return bg.remove();
+        if (e.target.id === 'rcCopy') {
+          var t = $('rcText');
+          (navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject()).then(function () { toast('Скопировано'); }).catch(function () { t.focus(); t.select(); toast('Выделил текст — скопируйте его'); });
+        }
+      });
+    }).catch(fail);
+  });
+}
+function coPeople(companyId) {
+  var box = $('people' + companyId); if (!box) return;
+  if (box.innerHTML) { box.innerHTML = ''; return; }
+  api('GET', '/companies/' + companyId + '/users').then(function (l) {
+    box.innerHTML = '<div class="ms" style="margin-top:8px">' + (l.length ? l.map(function (u) {
+      return '<div class="row" style="padding:4px 0"><span class="sp">' + esc(u.name) + ' <span class="xs">' + esc(u.phone || 'без телефона') + (u.status === 'pending' ? ' · ждёт подтверждения' : '') + '</span></span><button class="btn sm" data-act="resetCode" data-id="' + u.id + '" data-name="' + esc(u.name) + '">Код сброса пароля</button></div>';
+    }).join('') : '<div class="xs">Пока никто не зарегистрирован</div>') + '</div>';
+  }).catch(fail);
 }
 function isStaff() { return S.me && (S.me.role === 'manager' || S.me.role === 'admin'); }
 
@@ -158,41 +208,53 @@ function pollNotes() {
 }
 
 // ---------- вход ----------
+// Вход по телефону и паролю. Экраны: вход, регистрация, сброс пароля по коду от менеджера.
 function viewLogin(step, info) {
   renderTop();
-  step = step || 'phone'; info = info || {};
-  var h = '<div class="wrap"><img class="login-logo" src="/logo.png" alt="spacekit — комплектация пространств"><div class="card"><h1 style="margin-top:0">Вход</h1>';
-  if (step === 'phone') {
-    h += '<div class="f"><label>Телефон</label><input id="phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="+7 999 123-45-67" value="' + esc(info.phone || '') + '"></div>' +
-      '<button class="btn pri full" data-act="reqCode">Получить код</button><p class="xs">Код из 4 цифр придёт звонком или SMS.</p>';
+  step = step || 'login'; info = info || {};
+  var phoneField = '<div class="f"><label>Телефон</label><input id="phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="+7 999 123-45-67" value="' + esc(info.phone || (S.login && S.login.phone) || '') + '"></div>';
+  var h = '<div class="wrap"><img class="login-logo" src="/logo.png" alt="spacekit — комплектация пространств"><div class="card">';
+  if (step === 'login') {
+    h += '<h1 style="margin-top:0">Вход</h1>' + phoneField +
+      '<div class="f"><label>Пароль</label><input id="pass" type="password" autocomplete="current-password"></div>' +
+      '<button class="btn pri full" data-act="doLogin">Войти</button>' +
+      '<div class="btns" style="justify-content:space-between"><button class="btn sm" data-act="toRegister">Регистрация</button><button class="btn sm" data-act="toReset">Забыли пароль?</button></div>';
     // Демо-страница: вход за любую роль одной кнопкой.
     if (window.SK_DEMO) h += '<div class="note" style="margin:14px 0 0"><b>Демо.</b> Войдите за любую роль — данные тестовые и живут только в этом браузере.<div class="btns" style="margin-top:10px">' + window.SK_DEMO.roles.map(function (r) { return '<button class="btn sm" data-act="demoLogin" data-phone="' + r[1] + '">' + esc(r[0]) + '</button>'; }).join('') + '</div></div>';
+  } else if (step === 'register') {
+    h += '<h1 style="margin-top:0">Регистрация</h1><div class="note">После регистрации менеджер подтвердит вашу компанию, и можно будет создавать заявки.</div>' + phoneField +
+      '<div class="f"><label>Ваше имя <i>*</i></label><input id="pname" autocomplete="name"></div>' +
+      '<div class="f"><label>Компания <i>*</i></label><input id="pcompany" autocomplete="organization"></div>' +
+      '<div class="f"><label>Пароль <i>*</i> <span class="xs">не короче 6 символов</span></label><input id="pass" type="password" autocomplete="new-password"></div>' +
+      '<div class="f"><label>Пароль ещё раз <i>*</i></label><input id="pass2" type="password" autocomplete="new-password"></div>' +
+      '<button class="btn pri full" data-act="doRegister">Зарегистрироваться</button><div class="btns"><button class="btn sm" data-act="toLogin">← У меня уже есть пароль</button></div>';
   } else {
-    h += '<p class="s">Код отправлен на ' + esc(info.phone) + '</p><div class="f"><input id="code" class="code" inputmode="numeric" maxlength="4" autocomplete="one-time-code" placeholder="····" value="' + esc(info.code || '') + '"></div>';
-    if (step === 'profile') {
-      h += '<div class="note">Вы входите впервые. Представьтесь — менеджер подтвердит вашу компанию.</div>' +
-        '<div class="f"><label>Ваше имя <i>*</i></label><input id="pname" autocomplete="name"></div>' +
-        '<div class="f"><label>Компания <i>*</i></label><input id="pcompany" autocomplete="organization"></div>';
-    }
-    h += '<button class="btn pri full" data-act="verify">Войти</button><div class="btns"><button class="btn sm" data-act="loginBack">Другой номер</button></div>';
+    h += '<h1 style="margin-top:0">Новый пароль</h1><div class="note">Попросите своего менеджера прислать код сброса (сотрудникам код выдаёт администратор). Код из 6 цифр действует сутки.</div>' + phoneField +
+      '<div class="f"><label>Код от менеджера</label><input id="rcode" class="code" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="······"></div>' +
+      '<div class="f"><label>Новый пароль <span class="xs">не короче 6 символов</span></label><input id="pass" type="password" autocomplete="new-password"></div>' +
+      '<div class="f"><label>Новый пароль ещё раз</label><input id="pass2" type="password" autocomplete="new-password"></div>' +
+      '<button class="btn pri full" data-act="doReset">Сохранить и войти</button><div class="btns"><button class="btn sm" data-act="toLogin">← Ко входу</button></div>';
   }
   $('app').innerHTML = h + '</div></div>';
-  S.login = { step: step, phone: info.phone || '' };
-  var f = $(step === 'phone' ? 'phone' : step === 'profile' ? 'pname' : 'code'); if (f) f.focus();
+  S.login = { step: step, phone: info.phone || (S.login && S.login.phone) || '' };
+  var f = $('phone'); if (f && f.value && $(step === 'register' ? 'pname' : step === 'reset' ? 'rcode' : 'pass')) f = $(step === 'register' ? 'pname' : step === 'reset' ? 'rcode' : 'pass');
+  if (f) f.focus();
 }
-function reqCode() {
-  var phone = $('phone').value.trim();
-  api('POST', '/auth/request-code', { phone: phone }).then(function (r) { viewLogin('code', { phone: phone, code: r && r.demoCode }); if (r && r.demoCode) toast('Демо: код ' + r.demoCode + ' уже подставлен'); }).catch(fail);
+function loggedIn(r) { S.token = r.token; store('token', r.token); S.me = null; S.notes = []; S.notesOpen = false; S._notesLoaded = false; S.listTab = null; S.managers = null; S.staff = null; go('#/'); boot(); }
+function phoneVal() { var p = $('phone').value.trim(); S.login.phone = p; return p; }
+function samePass() { if ($('pass').value.length < 6) { toast('Пароль не короче 6 символов', true); return false; } if ($('pass').value !== $('pass2').value) { toast('Пароли не совпадают', true); return false; } return true; }
+function doLogin() { api('POST', '/auth/login', { phone: phoneVal(), password: $('pass').value }).then(loggedIn).catch(fail); }
+function doRegister() {
+  var b = { phone: phoneVal(), name: $('pname').value.trim(), company: $('pcompany').value.trim(), password: $('pass').value };
+  if (!b.name || !b.company) return toast('Заполните имя и компанию', true);
+  if (!samePass()) return;
+  api('POST', '/auth/register', b).then(loggedIn).catch(fail);
 }
-function verify() {
-  var b = { phone: S.login.phone, code: $('code').value.trim() };
-  if (S.login.step === 'profile') { b.name = $('pname').value.trim(); b.company = $('pcompany').value.trim(); if (!b.name || !b.company) return toast('Заполните имя и компанию', true); }
-  api('POST', '/auth/verify', b).then(function (r) {
-    S.token = r.token; store('token', r.token); S.me = null; S._notesLoaded = false; go('#/'); boot();
-  }).catch(function (e) {
-    if (e.code === 'profile_required') return viewLogin('profile', { phone: S.login.phone, code: b.code });
-    fail(e);
-  });
+function doReset() {
+  var code = $('rcode').value.replace(/\D/g, '');
+  if (code.length !== 6) return toast('Код — 6 цифр', true);
+  if (!samePass()) return;
+  api('POST', '/auth/reset', { phone: phoneVal(), code: code, password: $('pass').value }).then(function (r) { toast('Пароль сохранён'); loggedIn(r); }).catch(fail);
 }
 
 function viewPending() {
@@ -202,8 +264,8 @@ function viewPending() {
 
 function viewSettings() {
   $('app').innerHTML = '<div class="wrap"><h1>Настройки</h1><div class="card"><div class="b">' + esc(S.me.name) + '</div><div class="s">' + esc(ROLE[S.me.role]) + '</div>' +
-    (S.me.role === 'customer' ? '<label class="chk' + (S.me.smsEnabled ? ' on' : '') + '" data-act="toggleSms" style="margin-top:12px"><div class="box">' + (S.me.smsEnabled ? '✓' : '') + '</div><div>SMS о заявках<div class="xs">Подтверждение, отгрузка, отмена. Уведомления в приложении остаются всегда.</div></div></label>' : '') +
-    '<div class="btns"><button class="btn bad" data-act="logout">Выйти</button></div></div></div>';
+    (S.me.role === 'customer' && S.me.smsAvailable ? '<label class="chk' + (S.me.smsEnabled ? ' on' : '') + '" data-act="toggleSms" style="margin-top:12px"><div class="box">' + (S.me.smsEnabled ? '✓' : '') + '</div><div>SMS о заявках<div class="xs">Подтверждение, отгрузка, отмена. Уведомления в приложении остаются всегда.</div></div></label>' : '') +
+    '<div class="btns"><button class="btn" data-act="changePass">Сменить пароль</button><button class="btn bad" data-act="logout">Выйти</button></div></div></div>';
 }
 
 // ---------- список заявок ----------
@@ -750,7 +812,7 @@ document.addEventListener('drop', function (ev) {
 // ---------- клиенты (менеджер, админ) ----------
 function viewCompanies() {
   $('app').innerHTML = '<div class="wrap wide loading"><div class="skel"></div><div class="skel"></div><div class="skel"></div></div>';
-  var mg = S.me.role === 'admin' && !S.managers ? api('GET', '/staff/managers').then(function (m) { S.managers = m; }) : Promise.resolve();
+  var mg = S.me.role === 'admin' ? Promise.all([api('GET', '/staff/managers'), api('GET', '/staff')]).then(function (x) { S.managers = x[0]; S.staff = x[1]; }) : Promise.resolve();
   Promise.all([api('GET', '/companies'), mg]).then(function (x) { S.companies = x[0]; renderCompanies(); }).catch(fail);
 }
 function renderCompanies() {
@@ -762,13 +824,15 @@ function renderCompanies() {
     var acts = [];
     if (c.managerId === null && me.role === 'manager') acts.push('<button class="btn sm" data-act="claim" data-id="' + c.id + '">Взять клиента</button>');
     if (own && c.status === 'pending') acts.push('<button class="btn sm pri" data-act="approve" data-id="' + c.id + '">Подтвердить компанию</button>');
+    if (own) acts.push('<button class="btn sm" data-act="coPeople" data-id="' + c.id + '">Люди и пароли</button>');
     if (own) acts.push('<label class="row xs" style="cursor:pointer"><input type="checkbox" data-act="coVat" data-id="' + c.id + '"' + (c.vatInvoice ? ' checked' : '') + '> счёт с НДС</label>');
     if (me.role === 'admin' && S.managers) acts.push('<label class="row xs">Ведёт: <select class="inp" style="width:auto;padding:5px 8px" data-act="reassign" data-id="' + c.id + '"><option value="">—</option>' + S.managers.map(function (m) { return '<option value="' + m.id + '"' + (m.id === c.managerId ? ' selected' : '') + '>' + esc(m.name) + '</option>'; }).join('') + '</select></label>');
     return '<div class="card" style="cursor:default"><div class="row"><b class="sp">' + esc(c.name) + '</b><span class="pill p-' + c.status + '">' + esc(CO_ST[c.status]) + '</span></div>' +
       '<div class="s">' + (c.managerName ? 'Ведёт: ' + esc(c.managerName) : '<span class="tag warn">не распределён</span>') + ' · МойСклад: ' + (c.msCounterpartyId ? '<span class="tag ok">контрагент связан</span>' : '<span class="tag warn">контрагент не выбран</span>') + '</div>' +
       (own ? '<div class="pick" style="margin-top:8px"><input class="inp" data-cp="' + c.id + '" placeholder="' + (c.msCounterpartyId ? 'Сменить контрагента МойСклад…' : 'Найти контрагента в МойСклад…') + '" autocomplete="off"><div id="cp' + c.id + '"></div></div>' : '') +
-      (acts.length ? '<div class="btns" style="margin-top:8px;align-items:center">' + acts.join('') + '</div>' : '') + '</div>';
+      (acts.length ? '<div class="btns" style="margin-top:8px;align-items:center">' + acts.join('') + '</div>' : '') + '<div id="people' + c.id + '"></div></div>';
   }).join('') : '<div class="empty">Здесь пусто</div>';
+  if (me.role === 'admin' && S.staff) h += '</div><h2>Сотрудники</h2><div class="card">' + S.staff.map(function (u) { return '<div class="row" style="padding:5px 0"><span class="sp">' + esc(u.name) + ' <span class="xs">' + esc(ROLE[u.role] || u.role) + ' · ' + esc(u.phone || 'без телефона') + (u.hasPassword ? '' : ' · <span class="tag warn">пароль не задан</span>') + '</span></span>' + (u.phone && u.id !== me.id ? '<button class="btn sm" data-act="resetCode" data-id="' + u.id + '" data-name="' + esc(u.name) + '">Код для пароля</button>' : '') + '</div>'; }).join('') + '</div><div>';
   $('app').innerHTML = h + '</div></div>';
 }
 var cpT;
@@ -793,11 +857,17 @@ document.addEventListener('click', function (ev) {
   var act = el.getAttribute('data-act'), id = Number(el.getAttribute('data-id')), arg = el.getAttribute('data-arg');
   var r = S.req;
   switch (act) {
-    case 'reqCode': return reqCode();
-    case 'demoLogin': $('phone').value = el.getAttribute('data-phone'); return api('POST', '/auth/request-code', { phone: el.getAttribute('data-phone') }).then(function (x) { S.login = { step: 'code', phone: el.getAttribute('data-phone') }; viewLogin('code', { phone: S.login.phone, code: x.demoCode }); verify(); }).catch(fail);
-    case 'verify': return verify();
-    case 'loginBack': return viewLogin('phone', { phone: S.login.phone });
+    case 'doLogin': return doLogin();
+    case 'doRegister': return doRegister();
+    case 'doReset': return doReset();
+    case 'toLogin': return viewLogin('login');
+    case 'toRegister': return viewLogin('register');
+    case 'toReset': return viewLogin('reset');
+    case 'demoLogin': return window.SK_DEMO.login(el.getAttribute('data-phone'));
     case 'logout': return logout();
+    case 'changePass': return changePass();
+    case 'coPeople': return coPeople(id);
+    case 'resetCode': return resetCode(id, el.getAttribute('data-name'));
     case 'reloadMe': S.me = null; return boot();
     case 'notes': S.notesOpen = !S.notesOpen; return renderTop();
     case 'readAll': return api('POST', '/notifications/read-all').then(pollNotes).catch(fail);
@@ -829,7 +899,7 @@ document.addEventListener('click', function (ev) {
     }
     case 'cancel': return ask('Отменить заявку №' + r.id + '?', { text: 'Отменённую заявку вернуть нельзя.', ok: 'Отменить заявку', cancel: 'Не отменять', danger: true }).then(function (yes) { if (yes) return api('POST', '/requests/' + r.id + '/status', { to: 'cancelled' }).then(function () { toast('Заявка отменена'); return reloadReq(); }).catch(fail); });
     case 'claim': return api('POST', '/companies/' + id + '/claim').then(function () { toast('Клиент теперь ваш'); return S.req && location.hash.indexOf('#/r/') === 0 ? reloadReq() : viewCompanies(); }).catch(fail);
-    case 'approve': return api('POST', '/companies/' + id + '/approve').then(function () { toast('Компания подтверждена, заказчику ушло SMS'); viewCompanies(); }).catch(fail);
+    case 'approve': return api('POST', '/companies/' + id + '/approve').then(function () { toast('Компания подтверждена, заказчик получит уведомление'); viewCompanies(); }).catch(fail);
     case 'pickSku': return api('PATCH', '/requests/' + r.id + '/items/' + el.getAttribute('data-item'), { skuId: Number(el.getAttribute('data-sku')) }).then(reloadReq).catch(fail);
     case 'selItem': S.sel[id] = !S.sel[id]; return renderRequest();
     case 'ship': {
@@ -875,8 +945,7 @@ document.addEventListener('input', function (ev) {
 document.addEventListener('keydown', function (ev) {
   if (ev.key !== 'Enter') return;
   var id = ev.target.id;
-  if (id === 'phone') { ev.preventDefault(); reqCode(); }
-  else if (id === 'code' || id === 'pcompany') { ev.preventDefault(); verify(); }
+  if ((id === 'pass' || id === 'pass2' || id === 'phone') && S.login && !S.me) { ev.preventDefault(); if (S.login.step === 'login') doLogin(); else if (S.login.step === 'register') doRegister(); else doReset(); }
 });
 
 route();

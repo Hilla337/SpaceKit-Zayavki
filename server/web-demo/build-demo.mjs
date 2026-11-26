@@ -34,17 +34,7 @@ ${safe(app.replaceAll("'/logo.png'", JSON.stringify(logo)).replaceAll('src="/log
 (function () {
   var sel = document.getElementById('demoRole');
   sel.innerHTML = '<option value="">Сменить роль…</option>' + SK_DEMO.roles.map(function (r) { return '<option value="' + r[1] + '">' + r[0] + '</option>'; }).join('');
-  sel.addEventListener('change', function () {
-    var phone = sel.value, code = ''; sel.value = ''; if (!phone) return;
-    fetch('/auth/request-code', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone: phone }) })
-      .then(function (r) { return r.json(); })
-      .then(function (x) { code = x.demoCode; return fetch('/auth/verify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone: phone, code: code }) }); })
-      .then(function (r) { return r.json(); })
-      .then(function (r) {
-        if (!r.token) { logoutLocal(); return viewLogin('profile', { phone: phone, code: code }); }
-        S.token = r.token; store('token', r.token); S.me = null; S.notes = []; S._notesLoaded = false; S.listTab = null; location.hash = '#/'; boot();
-      });
-  });
+  sel.addEventListener('change', function () { var phone = sel.value; sel.value = ''; if (phone) SK_DEMO.login(phone); });
   document.getElementById('demoReset').addEventListener('click', function () { SK_DEMO.reset(); });
 })();
 </script>

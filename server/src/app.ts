@@ -8,7 +8,6 @@ import { registerCompanyRoutes } from './routes-companies.js';
 import { registerRequestRoutes } from './routes-requests.js';
 import { registerShipRoutes } from './routes-ship.js';
 import type { MsGateway } from './moysklad.js';
-import type { CodeSender } from './sender.js';
 import type { Actor, Role } from './types.js';
 
 export interface AuthedUser extends Actor {
@@ -18,9 +17,9 @@ export interface AuthedUser extends Actor {
 
 export interface Deps {
   db: Db;
-  sender: CodeSender;
+  /** Секрет для хэшей одноразовых кодов сброса пароля. */
   pepper: string;
-  /** Часы вынесены, чтобы в тестах проверять истечение кодов и сессий. */
+  /** Часы вынесены, чтобы в тестах проверять истечение кодов, блокировок и сессий. */
   clock?: () => Date;
   logger?: boolean;
   /** Сколько прокси-серверов стоит перед приложением (балансировщик и т.п.). 0, если запросы идут напрямую. */

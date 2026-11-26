@@ -49,7 +49,7 @@ export async function notifyUsersOnce(q: Queryable, userIds: number[], requestId
  */
 export async function smsToCustomers(q: Queryable, userIds: number[], requestId: number | null, text: string): Promise<void> {
   const ids = [...new Set(userIds)];
-  if (ids.length === 0) return;
+  if (ids.length === 0 || config.smsProvider === 'none') return;
   const body = config.appUrl ? `SpaceKit: ${text} ${config.appUrl}` : `SpaceKit: ${text}`;
   const placeholders = ids.map((_, i) => `$${i + 3}`).join(', ');
   await q.query(

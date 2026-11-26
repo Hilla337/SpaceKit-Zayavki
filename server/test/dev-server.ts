@@ -1,11 +1,12 @@
 /**
  * Сервер для пробы интерфейса без PostgreSQL и без МойСклад: база в памяти (PGlite), тестовые данные,
- * поддельный МойСклад (заказы и отгрузки только печатаются). Коды входа печатаются в консоль.
+ * поддельный МойСклад (заказы и отгрузки только печатаются). У всех тестовых людей пароль 123456.
  *   npm run dev:memory     → http://localhost:8080
  * Телефоны: менеджер Филипп +79990000001, Татьяна +79990000002, сборщик +79990000008, админ +79990000009,
- * заказчик «Профит Рум» +79991110001. Любой новый номер регистрируется как новый заказчик.
+ * заказчик «Профит Рум» +79991110001. Новый номер — кнопка «Регистрация».
  */
 import { buildApp } from '../src/app.js';
+import { hashPassword } from '../src/auth.js';
 import type { MsGateway } from '../src/moysklad.js';
 import { createTestDb } from './db-helper.js';
 
@@ -18,7 +19,7 @@ const ms: MsGateway = {
   async createOrder(o) { console.log('[МойСклад] заказ', o.key, o.positions.length, 'поз.'); return { id: `ord-${o.key}`, name: `0${++n}` }; },
   async createDemand(d) { console.log('[МойСклад] отгрузка', d.key, d.positions.length, 'поз.'); return { id: `dem-${d.key}`, name: `0${++n}` }; },
 };
-const app = buildApp({ db, sender: { async send(phone, code) { console.log(`[код входа] ${phone}: ${code}`); } }, pepper: 'dev', trustProxy: 0, ms, logger: false });
+const app = buildApp({ db, pepper: 'dev', trustProxy: 0, ms, logger: false });
 
 await db.query(`UPDATE users SET phone = '+79990000001' WHERE name = 'Филипп Инилеев'`);
 await db.query(`UPDATE users SET phone = '+79990000002' WHERE name = 'Татьяна Чех'`);
@@ -33,6 +34,8 @@ const c = (await db.query<{ id: number }>(`INSERT INTO companies (name, status, 
 await db.query(`INSERT INTO users (phone, name, role, status, company_id) VALUES ('+79991110001', 'Эрнест', 'customer', 'approved', $1)`, [c]);
 await db.query(`INSERT INTO companies (name, status) VALUES ('Новый клиент без менеджера', 'pending')`);
 
+await db.query('UPDATE users SET password_hash = $1 WHERE phone IS NOT NULL', [await hashPassword('123456')]);
+
 const port = Number(process.env.PORT ?? 8080);
 await app.listen({ port, host: '0.0.0.0' });
-console.log(`Интерфейс: http://localhost:${port}  (база в памяти, всё пропадёт после остановки)`);
+console.log(`Интерфейс: http://localhost:${port}  (база в памяти, всё пропадёт после остановки). Пароль у всех: 123456`);

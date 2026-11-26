@@ -174,6 +174,27 @@ export function registerCompanyRoutes(app: FastifyInstance, deps: Deps, _clock: 
     },
   );
 
+  // Люди компании-заказчика (для кода сброса пароля). Менеджер клиента или админ.
+  app.get<{ Params: { id: string } }>('/companies/:id/users', { preHandler: app.authenticate }, async (req, reply) => {
+    const u = req.user!;
+    const id = parseId(req.params.id);
+    if (!id) return reply.code(404).send({ error: 'not_found' });
+    const c = await loadCompany(db, id);
+    if (!c || !canViewCompany(u, toInfo(c))) return reply.code(404).send({ error: 'not_found' });
+    if (!canApproveCompany(u, toInfo(c))) return reply.code(403).send({ error: 'forbidden' });
+    const r = await db.query<{ id: number; name: string; phone: string | null; status: string }>(`SELECT id, name, phone, status FROM users WHERE company_id = $1 ORDER BY id`, [id]);
+    return r.rows;
+  });
+
+  // Сотрудники (для кода сброса пароля). Только админ.
+  app.get('/staff', { preHandler: app.authenticate }, async (req, reply) => {
+    if (!canReassignCompany(req.user!)) return reply.code(403).send({ error: 'forbidden' });
+    const r = await db.query<{ id: number; name: string; phone: string | null; role: string; has_password: boolean }>(
+      `SELECT id, name, phone, role, password_hash IS NOT NULL AS has_password FROM users WHERE role <> 'customer' ORDER BY role, name`,
+    );
+    return r.rows.map((x) => ({ id: x.id, name: x.name, phone: x.phone, role: x.role, hasPassword: x.has_password }));
+  });
+
   // Менеджеры, на которых можно переназначить клиента. Только админ.
   app.get('/staff/managers', { preHandler: app.authenticate }, async (req, reply) => {
     if (!canReassignCompany(req.user!)) return reply.code(403).send({ error: 'forbidden' });

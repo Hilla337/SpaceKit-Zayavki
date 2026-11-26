@@ -4,7 +4,7 @@ import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../src/app.js';
 import type { Db } from '../src/db.js';
 import { MoySklad, MsError, MsWriter, projectName, yesNo, type MsGateway, type MsPosition } from '../src/moysklad.js';
-import type { CodeSender } from '../src/sender.js';
+import { loginAs } from './auth-helper.js';
 import { createTestDb } from './db-helper.js';
 
 // ---------- клиент МойСклад на поддельном API ----------
@@ -122,8 +122,6 @@ class FakeMs implements MsGateway {
   }
 }
 
-const codes = new Map<string, string>();
-const sender: CodeSender = { async send(phone, code) { codes.set(phone, code); } };
 const ms = new FakeMs();
 let db: Db;
 let app: FastifyInstance;
@@ -133,12 +131,7 @@ let company: number;
 const CP = 'a1b2c3d4-0000-11f1-0a80-000000000001';
 const objectOk = { jk: 'Прайм Парк', street: 'Ленинградский пр.', house: '37', floor: '33', apt: '133Б', lift: 'грузовой', resp: 'Артур', respPhone: '+7 968 996-03-33', parking: 'есть', pass: 'нет' };
 
-async function login(phone: string): Promise<string> {
-  await app.inject({ method: 'POST', url: '/auth/request-code', payload: { phone }, headers: { 'x-forwarded-for': `10.9.0.${++ip}` } });
-  const r = await app.inject({ method: 'POST', url: '/auth/verify', payload: { phone, code: codes.get(phone) } });
-  assert.equal(r.statusCode, 200, r.body);
-  return r.json().token;
-}
+const login = (phone: string): Promise<string> => loginAs(app, db, phone);
 const call = (t: string, method: 'GET' | 'POST' | 'PATCH', url: string, payload?: unknown) =>
   app.inject({ method, url, payload: payload as object | undefined, headers: { authorization: `Bearer ${t}` } });
 
@@ -154,7 +147,7 @@ async function toConfirm(body: Record<string, unknown> = { object: objectOk }): 
 
 before(async () => {
   db = await createTestDb();
-  app = buildApp({ db, sender, pepper: 'test', trustProxy: 1, ms });
+  app = buildApp({ db, pepper: 'test', trustProxy: 1, ms });
   await db.query(`UPDATE users SET phone = '+79990000001' WHERE name = 'Филипп Инилеев'`);
   await db.query(`UPDATE users SET phone = '+79990000002' WHERE name = 'Татьяна Чех'`);
   await db.query(`INSERT INTO users (phone, name, role, status) VALUES ('+79990000008', 'Сборщик', 'picker', 'approved')`);

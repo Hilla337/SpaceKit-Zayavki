@@ -4,7 +4,7 @@ import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../src/app.js';
 import type { Db } from '../src/db.js';
 import { applyHints, loadHints, normalizeName, suggestHints } from '../src/hints.js';
-import type { CodeSender } from '../src/sender.js';
+import { register as registerUser } from './auth-helper.js';
 import { createTestDb } from './db-helper.js';
 
 test('нормализация названий: регистр, ё, кавычки и форма собственности не важны', () => {
@@ -19,23 +19,18 @@ test('нормализация названий: регистр, ё, кавыч�
   assert.equal(normalizeName('!!!'), '');
 });
 
-const codes = new Map<string, string>();
-const sender: CodeSender = { async send(phone, code) { codes.set(phone, code); } };
 let db: Db;
 let app: FastifyInstance;
-let ip = 0;
 
 before(async () => {
   db = await createTestDb();
-  app = buildApp({ db, sender, pepper: 't', trustProxy: 1 });
+  app = buildApp({ db, pepper: 't', trustProxy: 1 });
 });
 after(async () => { await app.close(); await db.close(); });
 
 async function register(phone: string, company: string): Promise<number> {
-  const h = { 'x-forwarded-for': `10.1.0.${++ip}` };
-  await app.inject({ method: 'POST', url: '/auth/request-code', payload: { phone }, headers: h });
-  const r = await app.inject({ method: 'POST', url: '/auth/verify', payload: { phone, code: codes.get(phone), name: 'Тест', company } });
-  assert.equal(r.statusCode, 200, r.body);
+  const r = await registerUser(app, phone, 'Тест', company);
+  assert.equal(r.statusCode, 201, r.body);
   return r.json().user.companyId as number;
 }
 const managerOf = async (companyId: number) =>
