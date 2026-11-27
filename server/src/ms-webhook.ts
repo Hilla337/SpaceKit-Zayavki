@@ -85,7 +85,7 @@ export async function handleMsEvent(db: Db, ms: MsEvents, ev: MsWebhookEvent): P
       await q.query('UPDATE requests SET ms_order_state = $2 WHERE id = $1', [r.id, state]);
       if (CANCEL_STATES.includes(state) && !['shipped', 'cancelled'].includes(r.status)) {
         await q.query(`UPDATE requests SET status = 'cancelled' WHERE id = $1`, [r.id]);
-        await addHistory(q, r.id, null, `Заказ отменён в МойСклад — заявка отменена`);
+        await addHistory(q, r.id, null, `Заказ отменён в МойСклад, заявка отменена`);
         await notifyUsers(q, await staffOfCompany(q, r.company_id), r.id, `Заявка №${r.id} отменена в МойСклад`);
         await notifyCustomers(q, await customersOfCompany(q, r.company_id), r.id, `Заявка №${r.id} отменена`);
         return 'cancelled';

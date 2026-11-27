@@ -14,17 +14,17 @@ var OBJ_F = [
 ];
 var ERR = {
   bad_phone: 'Проверьте номер телефона', too_many_requests: 'Слишком много попыток. Попробуйте через 15 минут', invalid_code: 'Неверный или устаревший код',
-  invalid_credentials: 'Неверный телефон или пароль. Если не задавали пароль или забыли его — нажмите «Забыли пароль?»', locked: 'Слишком много неверных паролей. Вход на этот номер закрыт на 15 минут',
+  invalid_credentials: 'Неверный телефон или пароль. Если не задавали пароль или забыли его, нажмите «Забыли пароль?»', locked: 'Слишком много неверных паролей. Вход на этот номер закрыт на 15 минут',
   phone_taken: 'Этот номер уже зарегистрирован. Войдите или нажмите «Забыли пароль?»', no_phone: 'У человека не указан телефон',
   too_many_attempts: 'Слишком много попыток. Запросите новый код', blocked: 'Доступ закрыт', send_failed: 'Не удалось отправить код',
   forbidden: 'Нет прав на это действие', not_found: 'Не найдено', unauthorized: 'Войдите заново', comment_required: 'Нужен комментарий',
   invalid_transition: 'Сейчас это действие недоступно', unpriced_items: 'Не у всех позиций есть товар и цена', not_in_work: 'Заявка не в работе',
-  not_matched: 'Сначала выберите товар', sku_not_found: 'Товар не найден', use_shipments: 'Отгрузка — отдельной кнопкой', nothing_to_ship: 'Нечего отгружать',
+  not_matched: 'Сначала выберите товар', sku_not_found: 'Товар не найден', use_shipments: 'Отгрузка делается отдельной кнопкой', nothing_to_ship: 'Нечего отгружать',
   bad_items: 'Часть позиций уже отгружена', object_incomplete: 'Заполните обязательные поля объекта', bad_lift: 'Выберите лифт', object_required: 'Укажите объект',
   object_not_found: 'Объект не найден', already_assigned: 'Клиента уже взял другой менеджер', no_counterparty: 'У компании не выбран контрагент в МойСклад',
   item_not_in_catalog: 'Есть позиции без товара из МойСклад', moysklad_failed: 'МойСклад ответил ошибкой', moysklad_disabled: 'МойСклад не подключён',
   counterparty_not_found: 'Контрагент не найден', counterparty_taken: 'Этот контрагент уже связан с другой компанией', order_created: 'Заказ уже создан в МойСклад, меняйте там',
-  empty: 'Пустое сообщение', bad_line: 'Строка без «;» — нужно «менеджер;клиент»', bad_hints: 'Ошибка в списке',
+  empty: 'Пустое сообщение', bad_line: 'Строка без «;», нужно «менеджер;клиент»', bad_hints: 'Ошибка в списке',
 };
 
 // ---------- иконки: свой минималистичный набор (линии 1.8, цвет — текущий цвет текста) ----------
@@ -65,7 +65,7 @@ function store(k, v) { try { if (v === null) localStorage.removeItem('sk_' + k);
 // ---------- помощники ----------
 function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
 function $(id) { return document.getElementById(id); }
-function money(n) { return n == null ? '—' : Number(n).toLocaleString('ru-RU', { minimumFractionDigits: 0, maximumFractionDigits: 2 }) + ' ₽'; }
+function money(n) { return n == null ? '-' : Number(n).toLocaleString('ru-RU', { minimumFractionDigits: 0, maximumFractionDigits: 2 }) + ' ₽'; }
 function qtyFmt(n) { return Number(n).toLocaleString('ru-RU', { maximumFractionDigits: 3 }); }
 function when(d) {
   if (!d) return '';
@@ -115,21 +115,21 @@ function changePass() {
 }
 // Код сброса пароля: менеджер сам отправляет его клиенту (WhatsApp, звонок), это бесплатно.
 function resetCode(userId, name) {
-  return ask('Выдать код сброса пароля?', { text: name + ' сможет задать новый пароль на экране «Забыли пароль?». Прежний код, если был, перестанет действовать.', ok: 'Выдать код' }).then(function (yes) {
+  return ask('Выдать код сброса пароля?', { text: name + ' сможет задать новый пароль на экране «Забыли пароль?». Прежний код, если был, перестанет действовать', ok: 'Выдать код' }).then(function (yes) {
     if (!yes) return;
     return api('POST', '/users/' + userId + '/reset-code').then(function (x) {
       var code = x.code.slice(0, 3) + ' ' + x.code.slice(3);
-      var text = 'Код для входа в приложение SpaceKit: ' + x.code + '. Откройте «Забыли пароль?», введите телефон ' + x.phone + ', код и новый пароль. Код действует сутки.';
+      var text = 'Код для входа в приложение SpaceKit: ' + x.code + '. Откройте «Забыли пароль?», введите телефон ' + x.phone + ', код и новый пароль. Код действует сутки';
       var bg = document.createElement('div'); bg.className = 'modal-bg';
       bg.innerHTML = '<div class="modal"><h1 style="font-size:19px;margin:0 0 6px">Код для ' + esc(x.name) + '</h1><div class="code" style="margin:10px 0;font-weight:700">' + esc(code) + '</div>' +
-        '<p class="s">Отправьте человеку этот текст в WhatsApp или продиктуйте по телефону. Код действует сутки, сработает один раз.</p><textarea class="inp" id="rcText" rows="3" readonly>' + esc(text) + '</textarea>' +
+        '<p class="s">Отправьте человеку этот текст в WhatsApp или продиктуйте по телефону. Код действует сутки, сработает один раз</p><textarea class="inp" id="rcText" rows="3" readonly>' + esc(text) + '</textarea>' +
         '<div class="btns" style="justify-content:flex-end"><button class="btn" id="rcCopy">Скопировать текст</button><button class="btn pri" id="rcOk">Готово</button></div></div>';
       document.body.appendChild(bg);
       bg.addEventListener('click', function (e) {
         if (e.target === bg || e.target.id === 'rcOk') return bg.remove();
         if (e.target.id === 'rcCopy') {
           var t = $('rcText');
-          (navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject()).then(function () { toast('Скопировано'); }).catch(function () { t.focus(); t.select(); toast('Выделил текст — скопируйте его'); });
+          (navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject()).then(function () { toast('Скопировано'); }).catch(function () { t.focus(); t.select(); toast('Выделил текст, скопируйте его'); });
         }
       });
     }).catch(fail);
@@ -141,7 +141,7 @@ function staffAdd() {
     '<div class="f"><label>Роль</label><select id="saRole"><option value="manager">Менеджер</option><option value="admin">Админ</option><option value="picker">Сборщик</option></select></div>' +
     '<div class="f"><label>Имя и фамилия</label><input id="saName" autocomplete="off"></div>' +
     '<div class="f"><label>Телефон</label><input id="saPhone" type="tel" placeholder="+7 999 123-45-67"></div>' +
-    '<p class="xs">Пароль менеджер задаст сам: после добавления нажмите «Код для пароля» и отправьте ему код.</p>' +
+    '<p class="xs">Пароль менеджер задаст сам: после добавления нажмите «Код для пароля» и отправьте ему код</p>' +
     '<div class="btns" style="justify-content:flex-end"><button class="btn" id="saNo">Отмена</button><button class="btn pri" id="saYes">Добавить</button></div></div>';
   document.body.appendChild(bg); $('saName').focus();
   bg.addEventListener('click', function (e) {
@@ -158,9 +158,9 @@ function hintsLoad() {
   var mgrs = S.managers || [];
   var bg = document.createElement('div'); bg.className = 'modal-bg';
   bg.innerHTML = '<div class="modal" style="max-width:520px"><h1 style="font-size:19px;margin:0 0 6px">Клиенты менеджера</h1>' +
-    '<p class="s" style="margin:0 0 12px">Клиенты с точно таким названием сразу попадут к выбранному менеджеру. Остальных он получит, когда клиент зарегистрируется под этим названием.</p>' +
+    '<p class="s" style="margin:0 0 12px">Клиенты с точно таким названием сразу попадут к выбранному менеджеру. Остальных он получит, когда клиент зарегистрируется под этим названием</p>' +
     '<div class="f"><label>Менеджер</label><select id="hlMgr">' + mgrs.map(function (m) { return '<option value="' + esc(m.name) + '">' + esc(m.name) + '</option>'; }).join('') + '</select></div>' +
-    '<div class="f"><label>Клиенты — по одному в строке</label><textarea id="hlText" class="inp" rows="8" placeholder="Например:&#10;Профит рум&#10;Гамота&#10;Кильганов"></textarea></div>' +
+    '<div class="f"><label>Клиенты, по одному в строке</label><textarea id="hlText" class="inp" rows="8" placeholder="Например:&#10;Профит рум&#10;Гамота&#10;Кильганов"></textarea></div>' +
     '<div class="btns" style="justify-content:flex-end"><button class="btn" id="hlNo">Отмена</button><button class="btn pri" id="hlYes">Сохранить</button></div></div>';
   document.body.appendChild(bg); $('hlText').focus();
   bg.addEventListener('click', function (e) {
@@ -172,7 +172,7 @@ function hintsLoad() {
       if (i > 0 && names.indexOf(l.slice(0, i).trim().toLowerCase()) >= 0) return l.slice(0, i).trim() + ';' + l.slice(i + 1).trim();
       return mgr + ';' + l;
     });
-    if (!lines.length) return toast('Впишите хотя бы одного клиента: серый текст в поле — только пример', true);
+    if (!lines.length) return toast('Впишите хотя бы одного клиента: серый текст в поле только пример', true);
     api('POST', '/hints', { text: lines.join('\n') }).then(function (r) {
       bg.remove();
       var msg = 'Сохранено клиентов: ' + r.saved + '. Сразу закреплено за менеджерами: ' + r.assigned.length + '.';
@@ -228,11 +228,11 @@ function disablePush() {
 }
 function pushBlock(state) {
   var t = {
-    on: ['Уведомления включены', 'Новые заявки, сообщения и смена статуса придут, даже когда приложение закрыто.', '<button class="btn sm" data-act="pushOff">Выключить</button>'],
-    off: ['Уведомления на этом устройстве', 'Новые заявки, сообщения и смена статуса — сразу на телефон или компьютер, даже когда приложение закрыто.', '<button class="btn sm pri" data-act="pushOn">' + ic('bell') + 'Включить</button>'],
-    denied: ['Уведомления запрещены', 'Браузер запретил уведомления для этого сайта. Разрешите их в настройках сайта (значок замка в адресной строке), затем обновите страницу.', ''],
-    'ios-home': ['Уведомления на iPhone', 'Apple присылает уведомления только приложениям на экране «Домой». Нажмите «Поделиться» внизу Safari → «На экран „Домой“», откройте приложение с иконки и включите уведомления здесь.', ''],
-    unsupported: ['Уведомления недоступны', window.SK_DEMO ? 'В демо уведомления не работают. В приложении включаются здесь одной кнопкой.' : 'Этот браузер не поддерживает уведомления. Откройте приложение в Chrome или Safari.', ''],
+    on: ['Уведомления включены', 'Новые заявки, сообщения и смена статуса придут, даже когда приложение закрыто', '<button class="btn sm" data-act="pushOff">Выключить</button>'],
+    off: ['Уведомления на этом устройстве', 'Новые заявки, сообщения и смена статуса сразу на телефон или компьютер, даже когда приложение закрыто', '<button class="btn sm pri" data-act="pushOn">' + ic('bell') + 'Включить</button>'],
+    denied: ['Уведомления запрещены', 'Браузер запретил уведомления для этого сайта. Разрешите их в настройках сайта (значок замка в адресной строке), затем обновите страницу', ''],
+    'ios-home': ['Уведомления на iPhone', 'Apple присылает уведомления только приложениям на экране «Домой». Нажмите «Поделиться» внизу Safari → «На экран „Домой“», откройте приложение с иконки и включите уведомления здесь', ''],
+    unsupported: ['Уведомления недоступны', window.SK_DEMO ? 'В демо уведомления не работают. В приложении включаются здесь одной кнопкой' : 'Этот браузер не поддерживает уведомления. Откройте приложение в Chrome или Safari', ''],
   }[state];
   return '<div class="ms" style="margin-top:14px"><div class="row" style="align-items:flex-start;gap:10px">' + ic('bell') + '<div class="sp"><div class="b">' + t[0] + '</div><div class="xs">' + t[1] + '</div>' + (t[2] ? '<div class="btns" style="margin-top:8px">' + t[2] + '</div>' : '') + '</div></div></div>';
 }
@@ -334,23 +334,23 @@ function viewLogin(step, info) {
   renderTop();
   step = step || 'login'; info = info || {};
   var phoneField = '<div class="f"><label>Телефон</label><input id="phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="+7 999 123-45-67" value="' + esc(info.phone || (S.login && S.login.phone) || '') + '"></div>';
-  var h = '<div class="wrap"><img class="login-logo" src="/logo.png" alt="spacekit — комплектация пространств"><div class="card">';
+  var h = '<div class="wrap"><img class="login-logo" src="/logo.png" alt="spacekit, комплектация пространств"><div class="card">';
   if (step === 'login') {
     h += '<h1 style="margin-top:0">Вход</h1>' + phoneField +
       '<div class="f"><label>Пароль</label><input id="pass" type="password" autocomplete="current-password"></div>' +
       '<button class="btn pri full" data-act="doLogin">Войти</button>' +
       '<div class="btns" style="justify-content:space-between"><button class="btn sm" data-act="toRegister">Регистрация</button><button class="btn sm" data-act="toReset">Забыли пароль?</button></div>';
     // Демо-страница: вход за любую роль одной кнопкой.
-    if (window.SK_DEMO) h += '<div class="note" style="margin:14px 0 0"><b>Демо.</b> Войдите за любую роль — данные тестовые и живут только в этом браузере.<div class="btns" style="margin-top:10px">' + window.SK_DEMO.roles.map(function (r) { return '<button class="btn sm" data-act="demoLogin" data-phone="' + r[1] + '">' + esc(r[0]) + '</button>'; }).join('') + '</div></div>';
+    if (window.SK_DEMO) h += '<div class="note" style="margin:14px 0 0"><b>Демо:</b> Войдите за любую роль, данные тестовые и живут только в этом браузере.<div class="btns" style="margin-top:10px">' + window.SK_DEMO.roles.map(function (r) { return '<button class="btn sm" data-act="demoLogin" data-phone="' + r[1] + '">' + esc(r[0]) + '</button>'; }).join('') + '</div></div>';
   } else if (step === 'register') {
-    h += '<h1 style="margin-top:0">Регистрация</h1><div class="note">После регистрации менеджер подтвердит вашу компанию, и можно будет создавать заявки.</div>' + phoneField +
+    h += '<h1 style="margin-top:0">Регистрация</h1><div class="note">После регистрации менеджер подтвердит вашу компанию, и можно будет создавать заявки</div>' + phoneField +
       '<div class="f"><label>Ваше имя <i>*</i></label><input id="pname" autocomplete="name"></div>' +
       '<div class="f"><label>Компания <i>*</i></label><input id="pcompany" autocomplete="organization"></div>' +
       '<div class="f"><label>Пароль <i>*</i> <span class="xs">не короче 6 символов</span></label><input id="pass" type="password" autocomplete="new-password"></div>' +
       '<div class="f"><label>Пароль ещё раз <i>*</i></label><input id="pass2" type="password" autocomplete="new-password"></div>' +
       '<button class="btn pri full" data-act="doRegister">Зарегистрироваться</button><div class="btns"><button class="btn sm" data-act="toLogin">' + ic('back') + 'У меня уже есть пароль</button></div>';
   } else {
-    h += '<h1 style="margin-top:0">Новый пароль</h1><div class="note">Попросите своего менеджера прислать код сброса (менеджерам код выдаёт администратор). Код из 6 цифр действует сутки.</div>' + phoneField +
+    h += '<h1 style="margin-top:0">Новый пароль</h1><div class="note">Попросите своего менеджера прислать код сброса (менеджерам код выдаёт администратор). Код из 6 цифр действует сутки</div>' + phoneField +
       '<div class="f"><label>Код от менеджера</label><input id="rcode" class="code" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="······"></div>' +
       '<div class="f"><label>Новый пароль <span class="xs">не короче 6 символов</span></label><input id="pass" type="password" autocomplete="new-password"></div>' +
       '<div class="f"><label>Новый пароль ещё раз</label><input id="pass2" type="password" autocomplete="new-password"></div>' +
@@ -373,20 +373,20 @@ function doRegister() {
 }
 function doReset() {
   var code = $('rcode').value.replace(/\D/g, '');
-  if (code.length !== 6) return toast('Код — 6 цифр', true);
+  if (code.length !== 6) return toast('Код из 6 цифр', true);
   if (!samePass()) return;
   api('POST', '/auth/reset', { phone: phoneVal(), code: code, password: $('pass').value }).then(function (r) { toast('Пароль сохранён'); loggedIn(r); }).catch(fail);
 }
 
 function viewPending() {
-  $('app').innerHTML = '<div class="wrap"><h1>Здравствуйте, ' + esc(S.me.name) + '</h1><div class="card"><p>Ваша компания ждёт подтверждения менеджером. Как только её подтвердят, придёт SMS и здесь можно будет создавать заявки.</p>' +
+  $('app').innerHTML = '<div class="wrap"><h1>Здравствуйте, ' + esc(S.me.name) + '</h1><div class="card"><p>Ваша компания ждёт подтверждения менеджером. Как только её подтвердят, придёт SMS и здесь можно будет создавать заявки</p>' +
     '<div class="btns"><button class="btn" data-act="reloadMe">Проверить ещё раз</button><button class="btn" data-act="logout">Выйти</button></div></div></div>';
 }
 
 function fillPushBox() { var b = $('pushBox'); if (b) pushState().then(function (st) { var b2 = $('pushBox'); if (b2) b2.innerHTML = pushBlock(st); }); }
 function viewSettings() {
   $('app').innerHTML = '<div class="wrap"><h1>Настройки</h1><div class="card"><div class="b">' + esc(S.me.name) + '</div><div class="s">' + esc(ROLE[S.me.role]) + '</div><div id="pushBox"></div>' +
-    (S.me.role === 'customer' && S.me.smsAvailable ? '<label class="chk' + (S.me.smsEnabled ? ' on' : '') + '" data-act="toggleSms" style="margin-top:12px"><div class="box">' + (S.me.smsEnabled ? ic('check') : '') + '</div><div>SMS о заявках<div class="xs">Подтверждение, отгрузка, отмена. Уведомления в приложении остаются всегда.</div></div></label>' : '') +
+    (S.me.role === 'customer' && S.me.smsAvailable ? '<label class="chk' + (S.me.smsEnabled ? ' on' : '') + '" data-act="toggleSms" style="margin-top:12px"><div class="box">' + (S.me.smsEnabled ? ic('check') : '') + '</div><div>SMS о заявках<div class="xs">Подтверждение, отгрузка, отмена. Уведомления в приложении остаются всегда</div></div></label>' : '') +
     '<div class="btns"><button class="btn" data-act="changePass">' + ic('key') + 'Сменить пароль</button><button class="btn bad" data-act="logout">' + ic('logout') + 'Выйти</button></div></div></div>';
   fillPushBox();
 }
@@ -406,7 +406,7 @@ function viewList() {
     h += '<div class="list">' + (list.length ? list.map(function (r) {
       return '<div class="card" data-go="#/r/' + r.id + '"><div class="row"><b>№' + r.id + '</b>' + pill(r.status) + '<span class="sp"></span><span class="xs">' + when(r.updatedAt) + '</span></div>' +
         '<div class="s">' + (role !== 'customer' ? esc(r.companyName) + ' · ' : '') + r.itemsCount + ' поз.' + (role === 'manager' && r.managerId === null ? ' · <span class="tag warn">клиент не распределён</span>' : '') + '</div></div>';
-    }).join('') : '<div class="empty">' + (role === 'customer' ? 'Заявок пока нет. Нажмите «Новая заявка».' : 'Здесь пусто') + '</div>') + '</div></div>';
+    }).join('') : '<div class="empty">' + (role === 'customer' ? 'Заявок пока нет. Нажмите «Новая заявка»' : 'Здесь пусто') + '</div>') + '</div></div>';
     $('app').innerHTML = h;
     pushNudge();
   }).catch(fail);
@@ -418,7 +418,7 @@ function pushNudge() {
   pushSub().then(function (sub) {
     var w = document.querySelector('#app .wrap'); if (sub || !w || $('pushNudge')) return;
     var d = document.createElement('div'); d.id = 'pushNudge'; d.className = 'note row'; d.style.flexWrap = 'wrap';
-    d.innerHTML = ic('bell') + '<span class="sp">' + (S.me.role === 'customer' ? 'Включите уведомления, чтобы сразу узнавать об ответе менеджера и отгрузке.' : 'Включите уведомления, чтобы сразу узнавать о новых заявках и сообщениях.') + '</span><button class="btn sm pri" data-act="pushOn">Включить</button><button class="btn sm" data-act="pushLater">Не сейчас</button>';
+    d.innerHTML = ic('bell') + '<span class="sp">' + (S.me.role === 'customer' ? 'Включите уведомления, чтобы сразу узнавать об ответе менеджера и отгрузке' : 'Включите уведомления, чтобы сразу узнавать о новых заявках и сообщениях') + '</span><button class="btn sm pri" data-act="pushOn">Включить</button><button class="btn sm" data-act="pushLater">Не сейчас</button>';
     w.insertBefore(d, w.children[1] || null);
   }).catch(function () {});
 }
@@ -432,9 +432,8 @@ function viewNew() {
 function renderNew() {
   var d = S.draft, objs = S.objects || [];
   var h = '<div class="wrap"><h1>Новая заявка</h1>';
-  h += '<h2>Товары</h2><div class="card paste"><div class="f"><label class="b" style="color:var(--ink);font-size:14px">Вставьте корзину Петровича или список товаров</label>' +
-    '<div class="xs" style="margin:-2px 0 8px">Откройте корзину на petrovich.ru, выделите всё (Cmd+A или Ctrl+A), скопируйте и вставьте сюда — товары появятся сами. Или сохраните смету у Петровича, скачайте её («Сметы» → смета → «Скачать») и загрузите файл. Можно и просто списком: «Ротбанд 30 кг — 10 меш».</div>' +
-    '<textarea id="itemsText" rows="5" placeholder="Вставьте сюда…">' + esc(d.text) + '</textarea></div>' +
+  h += '<h2>Товары</h2><div class="card paste"><div class="f">' +
+    '<textarea id="itemsText" rows="5" placeholder="Скопируйте корзину Петровича и вставьте сюда или сохраните смету и загрузите файл .xls">' + esc(d.text) + '</textarea></div>' +
     '<div class="row" style="flex-wrap:wrap"><button class="btn sm" data-act="parseItems">Добавить из текста</button>' +
     '<button class="btn sm" data-act="pickSheet">' + ic('clip') + ' Загрузить файл Excel</button></div></div>';
   if (d.items.length) {
@@ -457,7 +456,7 @@ function renderNew() {
   if (d.objectId === null) {
     h += '<div class="card"><div class="grid">' + OBJ_F.map(function (f) {
       var k = f[0], v = d.obj[k] || '', lab = '<label>' + f[1] + (f[2] ? ' <i>*</i>' : '') + '</label>';
-      if (k === 'lift') return '<div class="f">' + lab + '<select data-obj="lift"><option value="">—</option>' + LIFT.map(function (l) { return '<option' + (v === l ? ' selected' : '') + '>' + l + '</option>'; }).join('') + '</select></div>';
+      if (k === 'lift') return '<div class="f">' + lab + '<select data-obj="lift"><option value="">не выбрано</option>' + LIFT.map(function (l) { return '<option' + (v === l ? ' selected' : '') + '>' + l + '</option>'; }).join('') + '</select></div>';
       if (k === 'dominfo') return '<div class="f span2">' + lab + '<textarea rows="2" data-obj="dominfo">' + esc(v) + '</textarea></div>';
       return '<div class="f">' + lab + '<input data-obj="' + k + '" value="' + esc(v) + '"' + (k === 'parking' ? ' placeholder="есть / нет"' : k === 'pass' ? ' placeholder="нужен / не нужен"' : '') + '></div>';
     }).join('') + '</div></div>';
@@ -537,7 +536,7 @@ function parseLine(l) {
   var url = (l.match(/https?:\/\/\S+/) || [])[0], p = url ? parseLink(url) : { store: '', code: '' }, rest = url ? l.replace(url, '').trim() : l;
   var m = rest.match(/^(.*?)[\s,;:—–\-x×*]*(\d+(?:[.,]\d+)?)\s*([а-яё²2.\s]{0,10})$/i), name = rest, qty = 1, unit = 'шт';
   if (m && (m[3].trim() === '' || UNIT_RX.test(m[3].trim()))) { name = m[1].replace(/[\s,;:—–\-]+$/, '').trim(); qty = parseFloat(m[2].replace(',', '.')); unit = normUnit(m[3]); }
-  if (!name && p.cart) name = p.kind + ' Петровича по ссылке — список уточнит менеджер';
+  if (!name && p.cart) name = p.kind + ' Петровича по ссылке, список уточнит менеджер';
   if (!name && p.code) name = 'Товар ' + p.store + ', код ' + p.code;
   // Ссылку без названия не теряем: менеджер откроет её и подберёт товар сам.
   if (!name && url) name = 'Товар по ссылке' + (p.store && p.store !== 'Другой' ? ' (' + p.store + ')' : '');
@@ -563,7 +562,7 @@ function parseDraftText(text, silent) {
   if (silent) return items.length;
   renderNew();
   var box = document.querySelector('.pos'); if (box) box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-  if (cartLink) ask('Корзину или смету по ссылке прочитать нельзя', { text: 'Сайт Петровича не разрешает приложениям открывать корзины и сметы. Откройте корзину, выделите всё (Cmd+A или Ctrl+A), скопируйте и вставьте сюда — товары появятся сами. Ссылку мы сохранили: менеджер сможет открыть её.', ok: 'Понятно', cancel: 'Закрыть' });
+  if (cartLink) ask('Корзину или смету по ссылке прочитать нельзя', { text: 'Сайт Петровича не разрешает приложениям открывать корзины и сметы. Откройте корзину, выделите всё (Cmd+A или Ctrl+A), скопируйте и вставьте сюда, товары появятся сами. Или сохраните смету, скачайте .xls и загрузите файл. Ссылку мы сохранили: менеджер сможет открыть её', ok: 'Понятно', cancel: 'Закрыть' });
   else toast((cart ? 'Корзина Петровича: ' : 'Добавлено позиций: ') + items.length + '. Проверьте количество');
   return items.length;
 }
@@ -588,7 +587,7 @@ function sheetItem(r, petrovich) {
 function importSheet(file) {
   if (!file || !S.draft) return;
   if (!SHEET_RX.test(file.name)) return toast('Нужен файл Excel (.xls, .xlsx) или .csv', true);
-  if (file.size > 5 * 1024 * 1024) return toast('Файл больше 5 МБ — это не похоже на смету', true);
+  if (file.size > 5 * 1024 * 1024) return toast('Файл больше 5 МБ, это не похоже на смету', true);
   file.arrayBuffer().then(function (ab) { return window.SKSheet.readTable(ab); }).then(function (rows) {
     var cols = window.SKSheet.findColumns(rows);
     // Таблица без заголовков — разбираем её строки как обычный список.
@@ -643,7 +642,7 @@ function renderRequest() {
 
   if (role === 'manager' && r.managerId === null) h += '<div class="note warn">Клиента пока никто не ведёт. Возьмите его, чтобы работать с заявкой. <button class="btn sm" data-act="claim" data-id="' + r.companyId + '">Взять клиента</button></div>';
   if (r.changeComment && r.status === 'new') h += '<div class="note warn">Заказчик просит изменить: ' + esc(r.changeComment) + '</div>';
-  if (role === 'customer' && r.status === 'confirm') h += '<div class="note">Проверьте товары и цены и подтвердите заявку — после этого её начнут собирать.</div>';
+  if (role === 'customer' && r.status === 'confirm') h += '<div class="note">Проверьте товары и цены и подтвердите заявку, после этого её начнут собирать</div>';
 
   h += '<div class="two"><div>';
   // позиции
@@ -663,7 +662,7 @@ function renderRequest() {
       r.items.map(function (it) {
         return '<tr><td>' + esc(it.skuName || it.name) + (it.skuName && it.skuName !== it.name ? '<div class="xs">в заявке: ' + esc(it.name) + '</div>' : '') + (it.url ? ' <a class="ext" href="' + esc(it.url) + '" target="_blank" rel="noopener" title="Открыть товар">' + ic('external') + '</a>' : '') + (staff && it.matchState === 'none' ? ' <span class="tag warn">не подобран</span>' : '') + (it.shipped ? ' <span class="tag ok">отгружено</span>' : '') + (it.note ? '<div class="xs">' + esc(it.note) + '</div>' : '') + '</td>' +
           '<td class="num">' + qtyFmt(it.qty) + ' ' + esc(it.unit || '') + '</td>' + (prices ? '<td class="num">' + money(it.price) + '</td><td class="num">' + money(it.total) + '</td>' : '') + '</tr>';
-      }).join('') + '</table>' + (r.total !== undefined ? '<div class="tot"><span>Итого</span><span>' + money(r.total) + '</span></div>' : '<div class="xs" style="margin-top:8px">Цены появятся, когда менеджер отправит заявку на подтверждение.</div>') + '</div>';
+      }).join('') + '</table>' + (r.total !== undefined ? '<div class="tot"><span>Итого</span><span>' + money(r.total) + '</span></div>' : '<div class="xs" style="margin-top:8px">Цены появятся, когда менеджер отправит заявку на подтверждение</div>') + '</div>';
   }
 
   // действия
@@ -793,7 +792,7 @@ function renderChat() {
     prev = m;
   });
   var mineNew = S.chat.some(function (m) { return m.id > seen && m.mine; });
-  box.innerHTML = h || '<div class="empty">Сообщений пока нет. Напишите менеджеру — ответ придёт сюда.</div>';
+  box.innerHTML = h || '<div class="empty">Сообщений пока нет. Напишите менеджеру, ответ придёт сюда</div>';
   if (S.chat.length) S.lastSeen = S.chat[S.chat.length - 1].id;
   loadMedia(box);
   if (nearBottom || mineNew) box.scrollTop = box.scrollHeight;
@@ -894,7 +893,7 @@ function sendFiles(files, opts) {
 
 // ---- голосовые ----
 function startRec() {
-  if (window.SK_DEMO) return toast('В демо запись голоса недоступна: страница не получает микрофон. В приложении работает — послушайте голосовое в переписке');
+  if (window.SK_DEMO) return toast('В демо запись голоса недоступна: страница не получает микрофон. В приложении работает, послушайте голосовое в переписке');
   if (!navigator.mediaDevices || !window.MediaRecorder) return toast('Браузер не умеет записывать звук', true);
   navigator.mediaDevices.getUserMedia({ audio: true }).then(function (stream) {
     var type = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg'].filter(function (t) { return MediaRecorder.isTypeSupported(t); })[0] || '';
@@ -907,7 +906,7 @@ function startRec() {
       renderComposer();
       if (!r.send) return;
       var dur = Date.now() - r.start;
-      if (dur < 600) return toast('Слишком коротко — удерживайте запись дольше', true);
+      if (dur < 600) return toast('Слишком коротко, удерживайте запись дольше', true);
       var mime = (rec.mimeType || 'audio/webm').split(';')[0];
       var file = new File(chunks, 'голосовое.' + (mime.indexOf('mp4') >= 0 ? 'm4a' : mime.indexOf('ogg') >= 0 ? 'ogg' : 'webm'), { type: rec.mimeType || 'audio/webm' });
       sendFiles([file], { kind: 'voice', duration: dur, caption: '' });
@@ -990,7 +989,7 @@ document.addEventListener('click', function (ev) {
     if (act === 'copy') { (navigator.clipboard ? navigator.clipboard.writeText(m.text) : Promise.reject()).then(function () { toast('Текст скопирован'); }).catch(function () { toast('Не удалось скопировать', true); }); return; }
     if (act === 'edit') { S.edit = m; S.reply = null; S.chatDraft = m.text; renderComposer(); var ta2 = $('msg'); if (ta2) { ta2.focus(); ta2.selectionStart = ta2.value.length; } return; }
     if (act === 'delete') {
-      return ask('Удалить сообщение?', { text: 'Оно исчезнет у всех участников переписки.', ok: 'Удалить', danger: true }).then(function (yes) {
+      return ask('Удалить сообщение?', { text: 'Оно исчезнет у всех участников переписки', ok: 'Удалить', danger: true }).then(function (yes) {
         if (!yes) return;
         return api('DELETE', '/requests/' + S.req.id + '/messages/' + m.id).then(function () { m = Object.assign({}, m, { deleted: true, text: '', attachment: null, reactions: [], replyTo: null }); replaceMsg(m); }).catch(fail);
       });
@@ -1090,7 +1089,7 @@ function renderCompanies() {
     if (own && c.status === 'pending') acts.push('<button class="btn sm pri" data-act="approve" data-id="' + c.id + '">Подтвердить компанию</button>');
     if (own) acts.push('<button class="btn sm" data-act="coPeople" data-id="' + c.id + '">' + ic('users') + 'Люди и пароли</button>');
     if (own) acts.push('<label class="row xs" style="cursor:pointer"><input type="checkbox" data-act="coVat" data-id="' + c.id + '"' + (c.vatInvoice ? ' checked' : '') + '> счёт с НДС</label>');
-    if (me.role === 'admin' && S.managers) acts.push('<label class="row xs">Ведёт: <select class="inp" style="width:auto;padding:5px 8px" data-act="reassign" data-id="' + c.id + '"><option value="">—</option>' + S.managers.map(function (m) { return '<option value="' + m.id + '"' + (m.id === c.managerId ? ' selected' : '') + '>' + esc(m.name) + '</option>'; }).join('') + '</select></label>');
+    if (me.role === 'admin' && S.managers) acts.push('<label class="row xs">Ведёт: <select class="inp" style="width:auto;padding:5px 8px" data-act="reassign" data-id="' + c.id + '"><option value="">никто</option>' + S.managers.map(function (m) { return '<option value="' + m.id + '"' + (m.id === c.managerId ? ' selected' : '') + '>' + esc(m.name) + '</option>'; }).join('') + '</select></label>');
     return '<div class="card" style="cursor:default"><div class="row"><b class="sp">' + esc(c.name) + '</b><span class="pill p-' + c.status + '">' + esc(CO_ST[c.status]) + '</span></div>' +
       '<div class="s">' + (c.managerName ? 'Ведёт: ' + esc(c.managerName) : '<span class="tag warn">не распределён</span>') + ' · МойСклад: ' + (c.msCounterpartyId ? '<span class="tag ok">контрагент связан</span>' : '<span class="tag warn">контрагент не выбран</span>') + '</div>' +
       (own ? '<div class="pick" style="margin-top:8px"><input class="inp" data-cp="' + c.id + '" placeholder="' + (c.msCounterpartyId ? 'Сменить контрагента МойСклад…' : 'Найти контрагента в МойСклад…') + '" autocomplete="off"><div id="cp' + c.id + '"></div></div>' : '') +
@@ -1169,7 +1168,7 @@ document.addEventListener('click', function (ev) {
         return api('POST', '/requests/' + r.id + '/status', { to: 'new', comment: c }).then(function () { toast('Просьба отправлена менеджеру'); return reloadReq(); }).catch(fail);
       });
     }
-    case 'cancel': return ask('Отменить заявку №' + r.id + '?', { text: 'Отменённую заявку вернуть нельзя.', ok: 'Отменить заявку', cancel: 'Не отменять', danger: true }).then(function (yes) { if (yes) return api('POST', '/requests/' + r.id + '/status', { to: 'cancelled' }).then(function () { toast('Заявка отменена'); return reloadReq(); }).catch(fail); });
+    case 'cancel': return ask('Отменить заявку №' + r.id + '?', { text: 'Отменённую заявку вернуть нельзя', ok: 'Отменить заявку', cancel: 'Не отменять', danger: true }).then(function (yes) { if (yes) return api('POST', '/requests/' + r.id + '/status', { to: 'cancelled' }).then(function () { toast('Заявка отменена'); return reloadReq(); }).catch(fail); });
     case 'claim': return api('POST', '/companies/' + id + '/claim').then(function () { toast('Клиент теперь ваш'); return S.req && location.hash.indexOf('#/r/') === 0 ? reloadReq() : viewCompanies(); }).catch(fail);
     case 'approve': return api('POST', '/companies/' + id + '/approve').then(function () { toast('Компания подтверждена, заказчик получит уведомление'); viewCompanies(); }).catch(fail);
     case 'pickSku': return api('PATCH', '/requests/' + r.id + '/items/' + el.getAttribute('data-item'), { skuId: Number(el.getAttribute('data-sku')) }).then(reloadReq).catch(fail);
@@ -1202,7 +1201,7 @@ document.addEventListener('change', function (ev) {
   var act = el.getAttribute('data-act');
   if (act === 'vat') return api('PATCH', '/requests/' + S.req.id, { vatInvoice: el.checked }).then(reloadReq).catch(function (e) { el.checked = !el.checked; fail(e); });
   if (act === 'reassign') { if (!el.value) return; return api('POST', '/companies/' + el.getAttribute('data-id') + '/reassign', { managerId: Number(el.value) }).then(function () { toast('Клиент передан менеджеру'); viewCompanies(); }).catch(fail); }
-  if (act === 'coVat') return api('PATCH', '/companies/' + el.getAttribute('data-id'), { vatInvoice: el.checked }).then(function () { toast(el.checked ? 'Новые заявки клиента — со счётом с НДС' : 'Счёт с НДС выключен'); }).catch(function (e) { el.checked = !el.checked; fail(e); });
+  if (act === 'coVat') return api('PATCH', '/companies/' + el.getAttribute('data-id'), { vatInvoice: el.checked }).then(function () { toast(el.checked ? 'Новые заявки клиента будут со счётом с НДС' : 'Счёт с НДС выключен'); }).catch(function (e) { el.checked = !el.checked; fail(e); });
 });
 
 document.addEventListener('input', function (ev) {

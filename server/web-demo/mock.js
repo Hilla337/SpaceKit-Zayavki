@@ -93,7 +93,7 @@
     req(1043, 1, 10, 2, 'shipped', 9000, [{ name: 'Пена монтажная', qty: 6, skuId: 17, price: 590, shipped: true }], { msOrder: '02371' });
     // Переписка по заявке 1046
     function msg(id, requestId, authorId, text, minAgo, extra) { d.messages.push(Object.assign({ id: id, requestId: requestId, authorId: authorId, text: text, createdAt: now(minAgo), editedAt: null, deletedAt: null, replyTo: null, att: null }, extra || {})); }
-    msg(1, 1046, 10, 'Добрый день! Посмотрите, пожалуйста, можно ли заменить гипсокартон на Волма — он дешевле?', 520);
+    msg(1, 1046, 10, 'Добрый день! Посмотрите, пожалуйста, можно ли заменить гипсокартон на Волма, он дешевле?', 520);
     msg(2, 1046, 1, 'Здравствуйте! Волма есть, но для санузла лучше влагостойкий Knauf. Оставил его, по цене вышло почти так же 👍', 500, { replyTo: 1 });
     msg(3, 1046, 1, '', 498, { att: 1 });
     msg(4, 1046, 10, 'Понял, спасибо! Подтвержу вечером', 470);
