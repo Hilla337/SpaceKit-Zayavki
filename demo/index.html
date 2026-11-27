@@ -388,7 +388,7 @@ body{min-height:100vh}
   // ---------- представление (как в API) ----------
   function presentItem(i, staff, prices) {
     var sku = i.skuId ? byId(D.catalog, i.skuId) : null;
-    var x = { id: i.id, name: i.name, skuName: sku ? sku.name : null, qty: i.qty, unit: i.unit, note: null, url: i.url, store: i.store };
+    var x = { id: i.id, name: i.name, skuName: sku ? sku.name : null, qty: i.qty, unit: i.unit, note: i.note || null, url: i.url, store: i.store };
     if (prices) { x.price = i.price; x.total = i.price === null ? null : Math.round(i.price * i.qty * 100) / 100; }
     if (staff) { x.storeCode = i.code; x.matchState = i.skuId ? 'found' : 'none'; x.skuId = i.skuId; x.picked = false; x.shipped = i.shipped; }
     return x;
@@ -501,7 +501,7 @@ body{min-height:100vh}
       D.requests.push(r);
       b.items.forEach(function (it) {
         var sku = it.store && it.code ? D.catalog.filter(function (x) { return x.store === it.store && x.code === it.code; })[0] : null;
-        D.items.push({ id: ++D.seq.item, requestId: r.id, name: it.name, qty: it.qty, unit: it.unit || 'шт', url: it.url || null, store: it.store || null, code: it.code || null, skuId: sku ? sku.id : null, price: sku ? sku.price : null, shipped: false });
+        D.items.push({ id: ++D.seq.item, requestId: r.id, name: it.name, qty: it.qty, unit: it.unit || 'шт', url: it.url || null, store: it.store || null, code: it.code || null, note: it.note || null, skuId: sku ? sku.id : null, price: sku ? sku.price : null, shipped: false });
       });
       hist(r, u, 'создал(а) заявку'); notify(staffOf(r.companyId), r.id, 'Новая заявка №' + r.id);
       return { id: r.id };
@@ -676,7 +676,7 @@ body{min-height:100vh}
 var ST = { new: 'Новая', work: 'В обработке', confirm: 'На подтверждении', assembly: 'На сборке', partial: 'Частично отгружена', shipped: 'Отгружена', cancelled: 'Отменена' };
 var CO_ST = { pending: 'ждёт подтверждения', approved: 'подтверждена', blocked: 'заблокирована' };
 var ROLE = { customer: 'Заказчик', manager: 'Менеджер', picker: 'Сборщик', admin: 'Админ' };
-var UNITS = ['шт', 'м²', 'м', 'уп', 'меш', 'кг', 'л', 'рул', 'лист'];
+var UNITS = ['шт', 'м²', 'м', 'уп', 'меш', 'кг', 'л', 'рул', 'лист', 'пар', 'компл'];
 var LIFT = ['грузовой', 'пассажирский', 'нет'];
 var OBJ_F = [
   ['jk', 'Название ЖК', 0], ['street', 'Улица', 1], ['house', 'Дом', 1], ['entrance', 'Подъезд', 0], ['floor', 'Этаж', 1], ['apt', 'Квартира', 1],
@@ -1116,7 +1116,7 @@ function renderNew() {
       return '<div class="f">' + lab + '<input data-obj="' + k + '" value="' + esc(v) + '"' + (k === 'parking' ? ' placeholder="есть / нет"' : k === 'pass' ? ' placeholder="нужен / не нужен"' : '') + '></div>';
     }).join('') + '</div></div>';
   }
-  h += '<h2>Товары</h2><div class="card"><div class="f"><label>Вставьте список или ссылки на товары, по одной позиции в строке</label>' +
+  h += '<h2>Товары</h2><div class="card"><div class="f"><label>Вставьте список товаров, ссылки на товары или скопированную корзину Петровича (откройте корзину, выделите всё — Cmd+A или Ctrl+A — и скопируйте)</label>' +
     '<textarea id="itemsText" rows="6" placeholder="Ротбанд 30 кг — 10 меш&#10;https://petrovich.ru/product/155351/ 2&#10;Профиль ПП 60×27 3 м 40 шт">' + esc(d.text) + '</textarea></div>' +
     '<button class="btn sm" data-act="parseItems">Разобрать список</button></div>';
   if (d.items.length) {
@@ -1158,6 +1158,47 @@ function parseLink(u) {
   if (/vseinstrumenti\.ru/i.test(u)) { m = u.match(/-(\d{5,})\/?(?:[?#].*)?$/) || u.match(/\/(\d{5,})\/?(?:[?#].*)?$/); return { store: 'ВсеИнструменты', code: m ? m[1] : '' }; }
   return { store: 'Другой', code: '' };
 }
+// ---- скопированная корзина или смета Петровича ----
+// Заказчик выделяет список товаров на странице корзины и вставляет. В тексте у каждого товара есть «Код:», название,
+// цена за единицу («2 415 ₽», «за пар.») и сумма — количество = сумма / цена. Работает и с текстом со ссылками [название](url).
+function isPetrovichCart(text) { return /^\s*Код:/m.test(text) && /₽/.test(text); }
+var CART_JUNK = /^(доступно|под заказ|нет в наличии|в наличии|осталось|рекомендуем|удалить|аналоги|\+|установка|монтаж|укладка|сборка|доставка|выбрать|в избранное)/i;
+var CART_END = /^(вес заказа|товары\s*\(|итого|оформить заказ|сумма заказа|скидка|промокод|предложить улучшение|способ получения|доставка и самовывоз)/i;
+var MONEY_RX = /^([\d\s  ]+(?:[.,]\d+)?)\s*₽$/;
+function money2num(s) { return Number(s.replace(/[\s  ]/g, '').replace(',', '.')); }
+function cartUnit(u) {
+  u = u.toLowerCase();
+  if (/^пар/.test(u)) return 'пар'; if (/^упак|^уп/.test(u)) return 'уп'; if (/^компл/.test(u)) return 'компл';
+  if (/^(кв\.?\s*м|м2|м²)/.test(u)) return 'м²'; if (/^(п\.?\s*м|пог)/.test(u)) return 'м'; if (/^м$/.test(u)) return 'м';
+  if (/^меш/.test(u)) return 'меш'; if (/^кг/.test(u)) return 'кг'; if (/^(л|литр)/.test(u)) return 'л'; if (/^рул/.test(u)) return 'рул'; if (/^лист/.test(u)) return 'лист';
+  return 'шт';
+}
+function parsePetrovichCart(text) {
+  var lines = text.split(/\n/).map(function (l) { return l.trim(); }).filter(Boolean), out = [], cur = null;
+  function flush() {
+    if (!cur || !cur.code) return;
+    var qty = 1;
+    if (cur.prices.length >= 2 && cur.prices[0] > 0) { qty = cur.prices[cur.prices.length - 1] / cur.prices[0]; qty = Math.abs(qty - Math.round(qty)) < 0.01 ? Math.round(qty) : Math.round(qty * 1000) / 1000; }
+    out.push({ name: cur.name || 'Товар Петрович, код ' + cur.code, qty: qty > 0 ? qty : 1, unit: cur.unit || 'шт', url: 'https://petrovich.ru/product/' + cur.code + '/', store: 'Петрович', code: cur.code,
+      note: cur.prices.length ? 'Петрович: ' + cur.prices[0].toLocaleString('ru-RU') + ' ₽' + (cur.unitText ? ' ' + cur.unitText : '') : '' });
+  }
+  for (var i = 0; i < lines.length; i++) {
+    var l = lines[i], m = l.match(/^Код:\s*(\d{4,9})?\s*$/);
+    // Итоги корзины и подвал страницы — конец списка товаров (иначе сумма заказа испортит количество последней позиции).
+    if (CART_END.test(l)) { flush(); cur = null; continue; }
+    if (m) { flush(); cur = { code: m[1] || '', name: '', prices: [], unit: '', unitText: '' }; continue; }
+    if (!cur) continue;
+    if (!cur.code && /^\d{4,9}$/.test(l)) { cur.code = l; continue; }
+    var link = l.match(/^\[(.+)\]\((https?:\/\/[^)]*)\)$/); if (link) l = link[1];
+    var pm = l.match(MONEY_RX); if (pm) { cur.prices.push(money2num(pm[1])); continue; }
+    var um = l.match(/^за\s+(.+?)\.?$/i); if (um) { cur.unit = cartUnit(um[1]); cur.unitText = l; continue; }
+    if (/^[\d\s.,]+\s*(кг|г|т)$/i.test(l) || CART_JUNK.test(l)) continue;
+    if (!cur.name && /[a-zа-яё]/i.test(l) && l.length > 3) cur.name = l.slice(0, 300);
+  }
+  flush();
+  return out;
+}
+
 function parseLine(l) {
   l = l.trim().replace(/^\d+[.)]\s+/, '').replace(/^[-•*–]\s*/, '');
   if (!l) return null;
@@ -1271,7 +1312,7 @@ function itemEditor(it) {
     (it.url ? ' <a class="ext" href="' + esc(it.url) + '" target="_blank" rel="noopener" title="Открыть товар">' + ic('external') + '</a>' : '') + (it.store ? ' <span class="tag acc">' + esc(it.store) + (it.storeCode ? ' · ' + esc(it.storeCode) : '') + '</span>' : '') + '</div></div>' +
     '<div class="row" style="margin-top:8px"><div class="pick sp"><input class="inp" data-cat="' + it.id + '" placeholder="' + (ok ? 'Сменить товар из каталога…' : 'Найти товар в каталоге МойСклад…') + '" autocomplete="off"><div id="dd' + it.id + '"></div></div>' +
     '<input class="inp" style="width:120px" type="number" min="0" step="0.01" data-price="' + it.id + '" placeholder="Цена" value="' + (it.price == null ? '' : it.price) + '"' + (ok ? '' : ' disabled') + '></div>' +
-    '<div class="xs" style="margin-top:4px">' + (ok ? ic('check', 'sm') + ' ' + esc(it.skuName || 'подобран товар из каталога') + (it.price ? ' · сумма ' + money(it.total) : ' · поставьте цену') : 'не подобран') + '</div></div>';
+    (it.note ? '<div class="xs" style="margin-top:4px">' + esc(it.note) + '</div>' : '') + '<div class="xs" style="margin-top:4px">' + (ok ? ic('check', 'sm') + ' ' + esc(it.skuName || 'подобран товар из каталога') + (it.price ? ' · сумма ' + money(it.total) : ' · поставьте цену') : 'не подобран') + '</div></div>';
 }
 
 // остаток на складе (из МойСклад, обновляется раз в 15 минут)
@@ -1715,6 +1756,10 @@ document.addEventListener('click', function (ev) {
     case 'parseItems': {
       var text = $('itemsText').value; S.draft.text = text;
       var rows = text.split(/\n+/).filter(function (l) { return l.trim(); });
+      if (isPetrovichCart(text)) {
+        var cart = parsePetrovichCart(text);
+        if (cart.length) { S.draft.items = S.draft.items.concat(cart); S.draft.text = ''; renderNew(); return toast('Разобрал корзину Петровича: ' + cart.length + ' поз. Проверьте количество'); }
+      }
       var parsed = rows.map(parseLine).filter(Boolean);
       if (!parsed.length) return toast('Не нашёл позиций в тексте', true);
       S.draft.items = S.draft.items.concat(parsed.map(function (x) { var y = Object.assign({}, x); delete y.cart; if (x.cart) y.note = 'Ссылка на корзину или смету Петровича: ' + x.url; return y; }));

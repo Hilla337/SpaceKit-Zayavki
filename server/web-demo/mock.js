@@ -147,7 +147,7 @@
   // ---------- представление (как в API) ----------
   function presentItem(i, staff, prices) {
     var sku = i.skuId ? byId(D.catalog, i.skuId) : null;
-    var x = { id: i.id, name: i.name, skuName: sku ? sku.name : null, qty: i.qty, unit: i.unit, note: null, url: i.url, store: i.store };
+    var x = { id: i.id, name: i.name, skuName: sku ? sku.name : null, qty: i.qty, unit: i.unit, note: i.note || null, url: i.url, store: i.store };
     if (prices) { x.price = i.price; x.total = i.price === null ? null : Math.round(i.price * i.qty * 100) / 100; }
     if (staff) { x.storeCode = i.code; x.matchState = i.skuId ? 'found' : 'none'; x.skuId = i.skuId; x.picked = false; x.shipped = i.shipped; }
     return x;
@@ -260,7 +260,7 @@
       D.requests.push(r);
       b.items.forEach(function (it) {
         var sku = it.store && it.code ? D.catalog.filter(function (x) { return x.store === it.store && x.code === it.code; })[0] : null;
-        D.items.push({ id: ++D.seq.item, requestId: r.id, name: it.name, qty: it.qty, unit: it.unit || 'шт', url: it.url || null, store: it.store || null, code: it.code || null, skuId: sku ? sku.id : null, price: sku ? sku.price : null, shipped: false });
+        D.items.push({ id: ++D.seq.item, requestId: r.id, name: it.name, qty: it.qty, unit: it.unit || 'шт', url: it.url || null, store: it.store || null, code: it.code || null, note: it.note || null, skuId: sku ? sku.id : null, price: sku ? sku.price : null, shipped: false });
       });
       hist(r, u, 'создал(а) заявку'); notify(staffOf(r.companyId), r.id, 'Новая заявка №' + r.id);
       return { id: r.id };

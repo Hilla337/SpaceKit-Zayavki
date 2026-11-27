@@ -9,7 +9,7 @@ import { addHistory, customersOfCompany, notifyCustomers, notifyUsers, staffOfCo
 import { checkTransition } from './statuses.js';
 import type { AccountStatus, CompanyInfo, RequestInfo, RequestStatus } from './types.js';
 
-const UNITS = ['шт', 'м²', 'м', 'уп', 'меш', 'кг', 'л', 'рул', 'лист'];
+const UNITS = ['шт', 'м²', 'м', 'уп', 'меш', 'кг', 'л', 'рул', 'лист', 'пар', 'компл'];
 const LIFTS = ['грузовой', 'пассажирский', 'нет'];
 
 /** Поля объекта в API совпадают с демо; здесь они сопоставляются со столбцами базы. */
