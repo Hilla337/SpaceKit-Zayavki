@@ -224,3 +224,6 @@ a.ext .i{width:15px;height:15px}
 /* предложение включить уведомления: на узком экране кнопки уходят под текст */
 #pushNudge .sp{flex:1 1 220px}
 #pushNudge > .i{align-self:flex-start;margin-top:2px}
+/* поле вставки корзины — главное действие новой заявки */
+.card.paste{border:1.5px dashed var(--line2);background:var(--card2)}
+.card.paste textarea{min-height:110px}

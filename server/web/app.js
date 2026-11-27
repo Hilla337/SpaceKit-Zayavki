@@ -431,7 +431,23 @@ function viewNew() {
 }
 function renderNew() {
   var d = S.draft, objs = S.objects || [];
-  var h = '<div class="wrap"><h1>Новая заявка</h1><h2>Объект</h2>';
+  var h = '<div class="wrap"><h1>Новая заявка</h1>';
+  h += '<h2>Товары</h2><div class="card paste"><div class="f"><label class="b" style="color:var(--ink);font-size:14px">Вставьте корзину Петровича или список товаров</label>' +
+    '<div class="xs" style="margin:-2px 0 8px">Откройте корзину на petrovich.ru, выделите всё (Cmd+A или Ctrl+A), скопируйте и вставьте сюда — товары появятся сами. Можно и просто списком: «Ротбанд 30 кг — 10 меш».</div>' +
+    '<textarea id="itemsText" rows="5" placeholder="Вставьте сюда…">' + esc(d.text) + '</textarea></div>' +
+    '<button class="btn sm" data-act="parseItems">Добавить из текста</button></div>';
+  if (d.items.length) {
+    h += '<div style="margin-top:8px">' + d.items.map(function (it, i) {
+      return '<div class="pos"><div class="row"><input class="inp sp" data-item="' + i + '" data-k="name" value="' + esc(it.name) + '">' +
+        '<button class="btn sm bad" data-act="delItem" data-i="' + i + '" title="Убрать" aria-label="Убрать">' + ic('x') + '</button></div>' +
+        '<div class="row" style="margin-top:6px"><input class="inp" style="width:110px" type="number" min="0" step="any" data-item="' + i + '" data-k="qty" value="' + esc(it.qty) + '">' +
+        '<select class="inp" style="width:90px" data-item="' + i + '" data-k="unit">' + UNITS.map(function (u) { return '<option' + (it.unit === u ? ' selected' : '') + '>' + u + '</option>'; }).join('') + '</select>' +
+        (it.store ? '<span class="tag acc">' + esc(it.store) + (it.code ? ' · ' + esc(it.code) : '') + '</span>' : '') + '</div></div>';
+    }).join('') + '</div><button class="btn sm" data-act="addItem">' + ic('plus') + 'Позиция</button>';
+  } else {
+    h += '<div class="btns"><button class="btn sm" data-act="addItem">' + ic('plus') + 'Добавить позицию вручную</button></div>';
+  }
+  h += '<h2>Объект</h2>';
   if (objs.length) {
     h += '<div class="card" style="margin-bottom:8px">' + objs.map(function (o) {
       return '<label class="row" style="padding:6px 0;cursor:pointer"><input type="radio" name="obj" data-act="pickObj" value="' + o.id + '"' + (d.objectId === o.id ? ' checked' : '') + '><span class="sp">' + esc(addr(o)) + '</span></label>';
@@ -444,20 +460,6 @@ function renderNew() {
       if (k === 'dominfo') return '<div class="f span2">' + lab + '<textarea rows="2" data-obj="dominfo">' + esc(v) + '</textarea></div>';
       return '<div class="f">' + lab + '<input data-obj="' + k + '" value="' + esc(v) + '"' + (k === 'parking' ? ' placeholder="есть / нет"' : k === 'pass' ? ' placeholder="нужен / не нужен"' : '') + '></div>';
     }).join('') + '</div></div>';
-  }
-  h += '<h2>Товары</h2><div class="card"><div class="f"><label>Вставьте список товаров, ссылки на товары или скопированную корзину Петровича (откройте корзину, выделите всё — Cmd+A или Ctrl+A — и скопируйте)</label>' +
-    '<textarea id="itemsText" rows="6" placeholder="Ротбанд 30 кг — 10 меш&#10;https://petrovich.ru/product/155351/ 2&#10;Профиль ПП 60×27 3 м 40 шт">' + esc(d.text) + '</textarea></div>' +
-    '<button class="btn sm" data-act="parseItems">Разобрать список</button></div>';
-  if (d.items.length) {
-    h += '<div style="margin-top:8px">' + d.items.map(function (it, i) {
-      return '<div class="pos"><div class="row"><input class="inp sp" data-item="' + i + '" data-k="name" value="' + esc(it.name) + '">' +
-        '<button class="btn sm bad" data-act="delItem" data-i="' + i + '" title="Убрать" aria-label="Убрать">' + ic('x') + '</button></div>' +
-        '<div class="row" style="margin-top:6px"><input class="inp" style="width:110px" type="number" min="0" step="any" data-item="' + i + '" data-k="qty" value="' + esc(it.qty) + '">' +
-        '<select class="inp" style="width:90px" data-item="' + i + '" data-k="unit">' + UNITS.map(function (u) { return '<option' + (it.unit === u ? ' selected' : '') + '>' + u + '</option>'; }).join('') + '</select>' +
-        (it.store ? '<span class="tag acc">' + esc(it.store) + (it.code ? ' · ' + esc(it.code) : '') + '</span>' : '') + '</div></div>';
-    }).join('') + '</div><button class="btn sm" data-act="addItem">' + ic('plus') + 'Позиция</button>';
-  } else {
-    h += '<div class="btns"><button class="btn sm" data-act="addItem">' + ic('plus') + 'Добавить позицию вручную</button></div>';
   }
   h += '<div class="btns"><button class="btn pri full" data-act="submitNew">Отправить заявку</button></div></div>';
   $('app').innerHTML = h;
@@ -542,7 +544,33 @@ function parseLine(l) {
   return { name: name, qty: qty || 1, unit: unit, url: url || '', store: p.store, code: p.code, cart: !!p.cart };
 }
 
+// Разбор вставленного текста в позиции: скопированная корзина/смета Петровича или список по строкам.
+// Вызывается сразу при вставке, по кнопке и перед отправкой (silent — без сообщений).
+function parseDraftText(text, silent) {
+  text = text || '';
+  var rows = text.split(/\n+/).filter(function (l) { return l.trim(); });
+  if (!rows.length) { if (!silent) toast('Вставьте корзину или список товаров', true); return 0; }
+  var items, cartLink = false, cart = false;
+  if (isPetrovichCart(text) && (items = parsePetrovichCart(text)).length) cart = true;
+  else {
+    var parsed = rows.map(parseLine).filter(Boolean);
+    cartLink = parsed.some(function (x) { return x.cart; });
+    items = parsed.map(function (x) { var y = Object.assign({}, x); delete y.cart; if (x.cart) y.note = 'Ссылка на корзину или смету Петровича: ' + x.url; return y; });
+  }
+  if (!items.length) { if (!silent) toast('Не нашёл товаров в тексте', true); return 0; }
+  S.draft.items = S.draft.items.concat(items); S.draft.text = '';
+  if (silent) return items.length;
+  renderNew();
+  var box = document.querySelector('.pos'); if (box) box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  if (cartLink) ask('Корзину или смету по ссылке прочитать нельзя', { text: 'Сайт Петровича не разрешает приложениям открывать корзины и сметы. Откройте корзину, выделите всё (Cmd+A или Ctrl+A), скопируйте и вставьте сюда — товары появятся сами. Ссылку мы сохранили: менеджер сможет открыть её.', ok: 'Понятно', cancel: 'Закрыть' });
+  else toast((cart ? 'Корзина Петровича: ' : 'Добавлено позиций: ') + items.length + '. Проверьте количество');
+  return items.length;
+}
+
 function submitNew() {
+  // Текст, который остался в поле и не был разобран, тоже идёт в заявку.
+  var left = $('itemsText') ? $('itemsText').value : '';
+  if (left.trim()) parseDraftText(left, true);
   var d = S.draft;
   var items = d.items.filter(function (i) { return i.name.trim(); }).map(function (i) {
     var x = { name: i.name.trim().slice(0, 300), qty: Number(i.qty) > 0 ? Number(i.qty) : 1, unit: i.unit };
@@ -965,6 +993,12 @@ document.addEventListener('dblclick', function (ev) {
   react(msg.id, mine && mine.emoji === '👍' ? null : '👍');
 });
 
+// Вставили корзину или список в поле товаров — разбираем сразу, без кнопки.
+document.addEventListener('paste', function (ev) {
+  if (ev.target.id !== 'itemsText' || !S.draft) return;
+  setTimeout(function () { var t = $('itemsText'); if (t && t.value.trim()) parseDraftText(t.value); }, 0);
+});
+
 document.addEventListener('input', function (ev) {
   if (ev.target.id !== 'msg') return;
   S.chatDraft = ev.target.value; autosize(ev.target);
@@ -1082,20 +1116,7 @@ document.addEventListener('click', function (ev) {
     case 'toggleSms': return api('PATCH', '/me', { smsEnabled: !S.me.smsEnabled }).then(function (x) { S.me.smsEnabled = x.smsEnabled; viewSettings(); }).catch(fail);
     case 'listTab': S.listTab = el.getAttribute('data-tab'); return viewList();
     case 'pickObj': S.draft.objectId = el.value ? Number(el.value) : null; return renderNew();
-    case 'parseItems': {
-      var text = $('itemsText').value; S.draft.text = text;
-      var rows = text.split(/\n+/).filter(function (l) { return l.trim(); });
-      if (isPetrovichCart(text)) {
-        var cart = parsePetrovichCart(text);
-        if (cart.length) { S.draft.items = S.draft.items.concat(cart); S.draft.text = ''; renderNew(); return toast('Разобрал корзину Петровича: ' + cart.length + ' поз. Проверьте количество'); }
-      }
-      var parsed = rows.map(parseLine).filter(Boolean);
-      if (!parsed.length) return toast('Не нашёл позиций в тексте', true);
-      S.draft.items = S.draft.items.concat(parsed.map(function (x) { var y = Object.assign({}, x); delete y.cart; if (x.cart) y.note = 'Ссылка на корзину или смету Петровича: ' + x.url; return y; }));
-      S.draft.text = ''; renderNew();
-      if (parsed.some(function (x) { return x.cart; })) return ask('Корзину или смету по ссылке прочитать нельзя', { text: 'Сайт Петровича не разрешает приложениям открывать корзины и сметы. Лучше откройте их, выделите и скопируйте список товаров и вставьте сюда — так все позиции попадут в заявку. Ссылку мы сохранили: менеджер сможет открыть её сам.', ok: 'Понятно', cancel: 'Закрыть' });
-      return toast('Добавлено позиций: ' + parsed.length + (rows.length > parsed.length ? '. Пустые строки пропущены' : ''));
-    }
+    case 'parseItems': return parseDraftText($('itemsText').value);
     case 'addItem': S.draft.text = ($('itemsText') || {}).value || S.draft.text; S.draft.items.push({ name: '', qty: 1, unit: 'шт' }); return renderNew();
     case 'delItem': S.draft.items.splice(Number(el.getAttribute('data-i')), 1); return renderNew();
     case 'submitNew': return submitNew();
