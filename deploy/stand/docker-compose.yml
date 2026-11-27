@@ -19,6 +19,7 @@ services:
       - db
     environment:
       NODE_ENV: production
+      APP_VERSION: __IMAGE__
       PORT: '8080'
       DATABASE_URL: __DATABASE_URL__
       AUTH_PEPPER: __AUTH_PEPPER__

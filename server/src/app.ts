@@ -108,7 +108,8 @@ export function buildApp(deps: Deps): FastifyInstance {
     return { ok: true };
   });
 
-  app.get('/health', async () => ({ ok: true }));
+  // version — тег образа (APP_VERSION задаёт стенд): сценарий обновления ждёт, пока ответит именно новая версия.
+  app.get('/health', async () => ({ ok: true, version: process.env.APP_VERSION ?? 'dev' }));
   app.get('/health/db', async (_req, reply) => {
     try {
       await deps.db.query('SELECT 1');
