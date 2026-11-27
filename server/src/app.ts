@@ -76,6 +76,7 @@ export function buildApp(deps: Deps): FastifyInstance {
     '/': ['index.html', 'text/html; charset=utf-8'],
     '/app.js': ['app.js', 'text/javascript; charset=utf-8'],
     '/app.css': ['app.css', 'text/css; charset=utf-8'],
+    '/sheet.js': ['sheet.js', 'text/javascript; charset=utf-8'],
     '/logo.png': ['logo.png', 'image/png'],
     '/icon-192.png': ['icon-192.png', 'image/png'],
     '/icon-512.png': ['icon-512.png', 'image/png'],

@@ -433,9 +433,10 @@ function renderNew() {
   var d = S.draft, objs = S.objects || [];
   var h = '<div class="wrap"><h1>Новая заявка</h1>';
   h += '<h2>Товары</h2><div class="card paste"><div class="f"><label class="b" style="color:var(--ink);font-size:14px">Вставьте корзину Петровича или список товаров</label>' +
-    '<div class="xs" style="margin:-2px 0 8px">Откройте корзину на petrovich.ru, выделите всё (Cmd+A или Ctrl+A), скопируйте и вставьте сюда — товары появятся сами. Можно и просто списком: «Ротбанд 30 кг — 10 меш».</div>' +
+    '<div class="xs" style="margin:-2px 0 8px">Откройте корзину на petrovich.ru, выделите всё (Cmd+A или Ctrl+A), скопируйте и вставьте сюда — товары появятся сами. Или сохраните смету у Петровича, скачайте её («Сметы» → смета → «Скачать») и загрузите файл. Можно и просто списком: «Ротбанд 30 кг — 10 меш».</div>' +
     '<textarea id="itemsText" rows="5" placeholder="Вставьте сюда…">' + esc(d.text) + '</textarea></div>' +
-    '<button class="btn sm" data-act="parseItems">Добавить из текста</button></div>';
+    '<div class="row" style="flex-wrap:wrap"><button class="btn sm" data-act="parseItems">Добавить из текста</button>' +
+    '<button class="btn sm" data-act="pickSheet">' + ic('clip') + ' Загрузить файл Excel</button></div></div>';
   if (d.items.length) {
     h += '<div style="margin-top:8px">' + d.items.map(function (it, i) {
       return '<div class="pos"><div class="row"><input class="inp sp" data-item="' + i + '" data-k="name" value="' + esc(it.name) + '">' +
@@ -566,6 +567,42 @@ function parseDraftText(text, silent) {
   else toast((cart ? 'Корзина Петровича: ' : 'Добавлено позиций: ') + items.length + '. Проверьте количество');
   return items.length;
 }
+
+// Файл сметы Петровича (.xls из «Сметы» → «Скачать») или своя таблица (.xlsx, .csv) → позиции заявки.
+var SHEET_RX = /\.(xls|xlsx|csv)$/i;
+function sheetItem(r, petrovich) {
+  var petro = petrovich && /^\d{4,9}$/.test(r.code), unit = r.unit ? cartUnit(r.unit) : 'шт';
+  var it = { name: r.name.slice(0, 300), qty: r.qty, unit: UNITS.indexOf(unit) >= 0 ? unit : 'шт' };
+  if (petro) {
+    it.store = 'Петрович'; it.code = r.code; it.url = 'https://petrovich.ru/product/' + r.code + '/';
+    if (r.price) it.note = 'Петрович: ' + r.price.toLocaleString('ru-RU') + ' ₽' + (r.unit ? ' за ' + r.unit : '');
+  } else {
+    var note = [];
+    if (r.code) note.push('Артикул: ' + r.code);
+    if (r.unit && cartUnit(r.unit) !== r.unit && UNITS.indexOf(r.unit) < 0) note.push('Ед. в файле: ' + r.unit);
+    if (r.price) note.push('Цена в файле: ' + r.price.toLocaleString('ru-RU') + ' ₽');
+    if (note.length) it.note = note.join('; ');
+  }
+  return it;
+}
+function importSheet(file) {
+  if (!file || !S.draft) return;
+  if (!SHEET_RX.test(file.name)) return toast('Нужен файл Excel (.xls, .xlsx) или .csv', true);
+  if (file.size > 5 * 1024 * 1024) return toast('Файл больше 5 МБ — это не похоже на смету', true);
+  file.arrayBuffer().then(function (ab) { return window.SKSheet.readTable(ab); }).then(function (rows) {
+    var cols = window.SKSheet.findColumns(rows);
+    // Таблица без заголовков — разбираем её строки как обычный список.
+    if (!cols) return parseDraftText(rows.map(function (r) { return r.filter(function (c) { return c !== ''; }).join(' '); }).join('\n'));
+    var items = window.SKSheet.tableRows(rows, cols).map(function (r) { return sheetItem(r, cols.petrovich); });
+    if (!items.length) return toast('В файле не нашёл товаров с количеством', true);
+    S.draft.text = ($('itemsText') || {}).value || S.draft.text;
+    S.draft.items = S.draft.items.concat(items);
+    renderNew();
+    var box = document.querySelector('.pos'); if (box) box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    toast((cols.petrovich ? 'Смета Петровича: ' : 'Из файла: ') + items.length + ' поз. Проверьте количество');
+  }).catch(function () { toast('Не получилось прочитать файл. Скачайте смету заново или скопируйте корзину и вставьте текстом', true); });
+}
+(function () { var f = document.createElement('input'); f.type = 'file'; f.id = 'sheetIn'; f.accept = '.xls,.xlsx,.csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv'; f.hidden = true; document.body.appendChild(f); })();
 
 function submitNew() {
   // Текст, который остался в поле и не был разобран, тоже идёт в заявку.
@@ -1014,22 +1051,26 @@ document.addEventListener('keydown', function (ev) {
     if (last) { ev.preventDefault(); S.edit = last; S.chatDraft = last.text; renderComposer(); $('msg').focus(); }
   }
 });
-document.addEventListener('change', function (ev) { if (ev.target.id === 'fileIn') { sendFiles(ev.target.files); ev.target.value = ''; } });
+document.addEventListener('change', function (ev) {
+  if (ev.target.id === 'fileIn') { sendFiles(ev.target.files); ev.target.value = ''; }
+  if (ev.target.id === 'sheetIn') { importSheet(ev.target.files[0]); ev.target.value = ''; }
+});
 document.addEventListener('paste', function (ev) {
   if (!chatEnabled() || !ev.clipboardData || !ev.clipboardData.files.length) return;
   ev.preventDefault(); sendFiles(ev.clipboardData.files);
 });
 ['dragenter', 'dragover'].forEach(function (n) {
   document.addEventListener(n, function (ev) {
-    var box = ev.target.closest && ev.target.closest('#chatbox'); if (!box) return;
-    ev.preventDefault(); if (!box.querySelector('.drop')) { var d = document.createElement('div'); d.className = 'drop'; d.textContent = 'Отпустите, чтобы отправить'; box.style.position = 'relative'; box.appendChild(d); }
+    var box = ev.target.closest && ev.target.closest('#chatbox, .card.paste'); if (!box) return;
+    ev.preventDefault(); if (!box.querySelector('.drop')) { var d = document.createElement('div'); d.className = 'drop'; d.textContent = box.id === 'chatbox' ? 'Отпустите, чтобы отправить' : 'Отпустите, чтобы загрузить смету'; box.style.position = 'relative'; box.appendChild(d); }
   });
 });
-document.addEventListener('dragleave', function (ev) { var box = $('chatbox'); if (box && (!ev.relatedTarget || !box.contains(ev.relatedTarget))) { var d = box.querySelector('.drop'); if (d) d.remove(); } });
+document.addEventListener('dragleave', function (ev) { document.querySelectorAll('#chatbox, .card.paste').forEach(function (box) { if (!ev.relatedTarget || !box.contains(ev.relatedTarget)) { var d = box.querySelector('.drop'); if (d) d.remove(); } }); });
 document.addEventListener('drop', function (ev) {
-  var box = ev.target.closest && ev.target.closest('#chatbox'); if (!box) return;
+  var box = ev.target.closest && ev.target.closest('#chatbox, .card.paste'); if (!box) return;
   ev.preventDefault(); var d = box.querySelector('.drop'); if (d) d.remove();
-  if (ev.dataTransfer && ev.dataTransfer.files.length) sendFiles(ev.dataTransfer.files);
+  if (!ev.dataTransfer || !ev.dataTransfer.files.length) return;
+  if (box.id === 'chatbox') sendFiles(ev.dataTransfer.files); else importSheet(ev.dataTransfer.files[0]);
 });
 
 // ---------- клиенты (менеджер, админ) ----------
@@ -1117,6 +1158,7 @@ document.addEventListener('click', function (ev) {
     case 'listTab': S.listTab = el.getAttribute('data-tab'); return viewList();
     case 'pickObj': S.draft.objectId = el.value ? Number(el.value) : null; return renderNew();
     case 'parseItems': return parseDraftText($('itemsText').value);
+    case 'pickSheet': return $('sheetIn').click();
     case 'addItem': S.draft.text = ($('itemsText') || {}).value || S.draft.text; S.draft.items.push({ name: '', qty: 1, unit: 'шт' }); return renderNew();
     case 'delItem': S.draft.items.splice(Number(el.getAttribute('data-i')), 1); return renderNew();
     case 'submitNew': return submitNew();

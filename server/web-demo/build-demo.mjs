@@ -5,6 +5,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 const web = (f) => new URL(`../web/${f}`, import.meta.url);
 const css = readFileSync(web('app.css'), 'utf8');
 const app = readFileSync(web('app.js'), 'utf8');
+const sheet = readFileSync(web('sheet.js'), 'utf8');
 const mock = readFileSync(new URL('./mock.js', import.meta.url), 'utf8');
 const logo = 'data:image/png;base64,' + readFileSync(web('logo.png')).toString('base64');
 const safe = (js) => js.replace(/<\/script/gi, '<\\/script');
@@ -25,6 +26,9 @@ body{min-height:100vh}
 <div class="demo-chip" id="demoChip">Демо · <select id="demoRole" aria-label="Сменить роль"></select><button id="demoReset" type="button">сбросить</button></div>
 <script>
 ${safe(mock)}
+</script>
+<script>
+${safe(sheet)}
 </script>
 <script>
 ${safe(app.replaceAll("'/logo.png'", JSON.stringify(logo)).replaceAll('src="/logo.png"', `src="${logo}"`))}
