@@ -1332,7 +1332,7 @@ function renderNew() {
   var d = S.draft, objs = S.objects || [];
   var h = '<div class="wrap"><h1>Новая заявка</h1>';
   h += '<h2>Товары</h2><div class="card paste"><div class="f">' +
-    '<textarea id="itemsText" rows="5" placeholder="Скопируйте корзину Петровича и вставьте сюда или сохраните смету и загрузите файл .xls">' + esc(d.text) + '</textarea></div>' +
+    '<textarea id="itemsText" rows="5" placeholder="Вставьте список товаров текстом или загрузите смету Петровича (.xls)">' + esc(d.text) + '</textarea></div>' +
     '<div class="row" style="flex-wrap:wrap"><button class="btn sm" data-act="parseItems">Добавить из текста</button>' +
     '<button class="btn sm" data-act="pickSheet">' + ic('clip') + ' Загрузить файл Excel</button></div></div>';
   if (d.items.length) {
@@ -1388,47 +1388,14 @@ function parseLink(u) {
   if (/vseinstrumenti\.ru/i.test(u)) { m = u.match(/-(\d{5,})\/?(?:[?#].*)?$/) || u.match(/\/(\d{5,})\/?(?:[?#].*)?$/); return { store: 'ВсеИнструменты', code: m ? m[1] : '' }; }
   return { store: 'Другой', code: '' };
 }
-// ---- скопированная корзина или смета Петровича ----
-// Заказчик выделяет список товаров на странице корзины и вставляет. В тексте у каждого товара есть «Код:», название,
-// цена за единицу («2 415 ₽», «за пар.») и сумма — количество = сумма / цена. Работает и с текстом со ссылками [название](url).
-function isPetrovichCart(text) { return /^\s*Код:/m.test(text) && /₽/.test(text); }
-var CART_JUNK = /^(доступно|под заказ|нет в наличии|в наличии|осталось|рекомендуем|удалить|аналоги|\+|установка|монтаж|укладка|сборка|доставка|выбрать|в избранное)/i;
-var CART_END = /^(вес заказа|товары\s*\(|итого|оформить заказ|сумма заказа|скидка|промокод|предложить улучшение|способ получения|доставка и самовывоз)/i;
-var MONEY_RX = /^([\d\s  ]+(?:[.,]\d+)?)\s*₽$/;
-function money2num(s) { return Number(s.replace(/[\s  ]/g, '').replace(',', '.')); }
-function cartUnit(u) {
+// Единица измерения из файла сметы («упак», «пар», «кв.м») → единица приложения.
+function unitFrom(u) {
   u = u.toLowerCase();
   if (/^пар/.test(u)) return 'пар'; if (/^упак|^уп/.test(u)) return 'уп'; if (/^компл/.test(u)) return 'компл';
   if (/^(кв\.?\s*м|м2|м²)/.test(u)) return 'м²'; if (/^(п\.?\s*м|пог)/.test(u)) return 'м'; if (/^м$/.test(u)) return 'м';
   if (/^меш/.test(u)) return 'меш'; if (/^кг/.test(u)) return 'кг'; if (/^(л|литр)/.test(u)) return 'л'; if (/^рул/.test(u)) return 'рул'; if (/^лист/.test(u)) return 'лист';
   return 'шт';
 }
-function parsePetrovichCart(text) {
-  var lines = text.split(/\n/).map(function (l) { return l.trim(); }).filter(Boolean), out = [], cur = null;
-  function flush() {
-    if (!cur || !cur.code) return;
-    var qty = 1;
-    if (cur.prices.length >= 2 && cur.prices[0] > 0) { qty = cur.prices[cur.prices.length - 1] / cur.prices[0]; qty = Math.abs(qty - Math.round(qty)) < 0.01 ? Math.round(qty) : Math.round(qty * 1000) / 1000; }
-    out.push({ name: cur.name || 'Товар Петрович, код ' + cur.code, qty: qty > 0 ? qty : 1, unit: cur.unit || 'шт', url: 'https://petrovich.ru/product/' + cur.code + '/', store: 'Петрович', code: cur.code,
-      note: cur.prices.length ? 'Петрович: ' + cur.prices[0].toLocaleString('ru-RU') + ' ₽' + (cur.unitText ? ' ' + cur.unitText : '') : '' });
-  }
-  for (var i = 0; i < lines.length; i++) {
-    var l = lines[i], m = l.match(/^Код:\s*(\d{4,9})?\s*$/);
-    // Итоги корзины и подвал страницы — конец списка товаров (иначе сумма заказа испортит количество последней позиции).
-    if (CART_END.test(l)) { flush(); cur = null; continue; }
-    if (m) { flush(); cur = { code: m[1] || '', name: '', prices: [], unit: '', unitText: '' }; continue; }
-    if (!cur) continue;
-    if (!cur.code && /^\d{4,9}$/.test(l)) { cur.code = l; continue; }
-    var link = l.match(/^\[(.+)\]\((https?:\/\/[^)]*)\)$/); if (link) l = link[1];
-    var pm = l.match(MONEY_RX); if (pm) { cur.prices.push(money2num(pm[1])); continue; }
-    var um = l.match(/^за\s+(.+?)\.?$/i); if (um) { cur.unit = cartUnit(um[1]); cur.unitText = l; continue; }
-    if (/^[\d\s.,]+\s*(кг|г|т)$/i.test(l) || CART_JUNK.test(l)) continue;
-    if (!cur.name && /[a-zа-яё]/i.test(l) && l.length > 3) cur.name = l.slice(0, 300);
-  }
-  flush();
-  return out;
-}
-
 function parseLine(l) {
   l = l.trim().replace(/^\d+[.)]\s+/, '').replace(/^[-•*–]\s*/, '');
   if (!l) return null;
@@ -1443,33 +1410,28 @@ function parseLine(l) {
   return { name: name, qty: qty || 1, unit: unit, url: url || '', store: p.store, code: p.code, cart: !!p.cart };
 }
 
-// Разбор вставленного текста в позиции: скопированная корзина/смета Петровича или список по строкам.
+// Разбор вставленного текста в позиции: список по строкам (название, количество, единица, ссылка).
 // Вызывается сразу при вставке, по кнопке и перед отправкой (silent — без сообщений).
 function parseDraftText(text, silent) {
   text = text || '';
   var rows = text.split(/\n+/).filter(function (l) { return l.trim(); });
-  if (!rows.length) { if (!silent) toast('Вставьте корзину или список товаров', true); return 0; }
-  var items, cartLink = false, cart = false;
-  if (isPetrovichCart(text) && (items = parsePetrovichCart(text)).length) cart = true;
-  else {
-    var parsed = rows.map(parseLine).filter(Boolean);
-    cartLink = parsed.some(function (x) { return x.cart; });
-    items = parsed.map(function (x) { var y = Object.assign({}, x); delete y.cart; if (x.cart) y.note = 'Ссылка на корзину или смету Петровича: ' + x.url; return y; });
-  }
+  if (!rows.length) { if (!silent) toast('Вставьте список товаров', true); return 0; }
+  var parsed = rows.map(parseLine).filter(Boolean), cartLink = parsed.some(function (x) { return x.cart; });
+  var items = parsed.map(function (x) { var y = Object.assign({}, x); delete y.cart; if (x.cart) y.note = 'Ссылка на корзину или смету Петровича: ' + x.url; return y; });
   if (!items.length) { if (!silent) toast('Не нашёл товаров в тексте', true); return 0; }
   S.draft.items = S.draft.items.concat(items); S.draft.text = '';
   if (silent) return items.length;
   renderNew();
   var box = document.querySelector('.pos'); if (box) box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-  if (cartLink) ask('Корзину или смету по ссылке прочитать нельзя', { text: 'Сайт Петровича не разрешает приложениям открывать корзины и сметы. Откройте корзину, выделите всё (Cmd+A или Ctrl+A), скопируйте и вставьте сюда, товары появятся сами. Или сохраните смету, скачайте .xls и загрузите файл. Ссылку мы сохранили: менеджер сможет открыть её', ok: 'Понятно', cancel: 'Закрыть' });
-  else toast((cart ? 'Корзина Петровича: ' : 'Добавлено позиций: ') + items.length + '. Проверьте количество');
+  if (cartLink) ask('Корзину или смету по ссылке прочитать нельзя', { text: 'Сайт Петровича не разрешает приложениям открывать корзины и сметы. Сохраните смету, скачайте её («Сметы» → смета → «Скачать») и загрузите файл кнопкой «Загрузить файл Excel». Ссылку мы сохранили: менеджер сможет открыть её', ok: 'Понятно', cancel: 'Закрыть' });
+  else toast('Добавлено позиций: ' + items.length + '. Проверьте количество');
   return items.length;
 }
 
 // Файл сметы Петровича (.xls из «Сметы» → «Скачать») или своя таблица (.xlsx, .csv) → позиции заявки.
 var SHEET_RX = /\.(xls|xlsx|csv)$/i;
 function sheetItem(r, petrovich) {
-  var petro = petrovich && /^\d{4,9}$/.test(r.code), unit = r.unit ? cartUnit(r.unit) : 'шт';
+  var petro = petrovich && /^\d{4,9}$/.test(r.code), unit = r.unit ? unitFrom(r.unit) : 'шт';
   var it = { name: r.name.slice(0, 300), qty: r.qty, unit: UNITS.indexOf(unit) >= 0 ? unit : 'шт' };
   if (petro) {
     it.store = 'Петрович'; it.code = r.code; it.url = 'https://petrovich.ru/product/' + r.code + '/';
@@ -1477,7 +1439,7 @@ function sheetItem(r, petrovich) {
   } else {
     var note = [];
     if (r.code) note.push('Артикул: ' + r.code);
-    if (r.unit && cartUnit(r.unit) !== r.unit && UNITS.indexOf(r.unit) < 0) note.push('Ед. в файле: ' + r.unit);
+    if (r.unit && unitFrom(r.unit) !== r.unit && UNITS.indexOf(r.unit) < 0) note.push('Ед. в файле: ' + r.unit);
     if (r.price) note.push('Цена в файле: ' + r.price.toLocaleString('ru-RU') + ' ₽');
     if (note.length) it.note = note.join('; ');
   }
@@ -1498,7 +1460,7 @@ function importSheet(file) {
     renderNew();
     var box = document.querySelector('.pos'); if (box) box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     toast((cols.petrovich ? 'Смета Петровича: ' : 'Из файла: ') + items.length + ' поз. Проверьте количество');
-  }).catch(function () { toast('Не получилось прочитать файл. Скачайте смету заново или скопируйте корзину и вставьте текстом', true); });
+  }).catch(function () { toast('Не получилось прочитать файл. Скачайте смету заново или вставьте список текстом', true); });
 }
 (function () { var f = document.createElement('input'); f.type = 'file'; f.id = 'sheetIn'; f.accept = '.xls,.xlsx,.csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv'; f.hidden = true; document.body.appendChild(f); })();
 
