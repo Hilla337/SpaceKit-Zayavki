@@ -142,7 +142,14 @@ jobs:
               echo "### Стенд работает: https://$DOMAIN" >> "$GITHUB_STEP_SUMMARY"
               exit 0
             fi
+            # Раз в минуту: что отвечает стенд (только коды ответа и версия, ничего секретного).
+            if [ $((i % 6)) -eq 0 ]; then
+              H=$(curl -s -o /dev/null -m 10 -w '%{http_code} за %{time_total}с' "http://$DOMAIN/health" || true)
+              S=$(curl -s -m 10 -w ' (%{http_code} за %{time_total}с)' "https://$DOMAIN/health" || true)
+              echo "минута $((i / 6)): http $H; https $S"
+            fi
             sleep 10
           done
+          echo "ВМ: $(yc compute instance get --name "$VM" --format json 2>/dev/null | jq -r .status)"
           echo "::error::За 10 минут новая версия стенда не ответила по https://$DOMAIN. Первый запуск ВМ и выпуск сертификата иногда идут дольше — запустите сценарий ещё раз через несколько минут."
           exit 1
