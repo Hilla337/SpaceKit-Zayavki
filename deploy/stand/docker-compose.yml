@@ -61,6 +61,22 @@ services:
     volumes:
       - caddy_data:/data
 
+  # Меньше MTU на сетевом интерфейсе ВМ (1400 вместо 1500): часть домашних сетей и VPN теряет большие пакеты
+  # («соединение есть, ответа нет»; с мобильного при этом открывается). Маленькие пакеты проходят везде.
+  netfix:
+    image: alpine:3.20
+    restart: always
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+    command:
+      - sh
+      - -c
+      - |
+        DEV=$$(ip -o route get 1.1.1.1 | sed -n 's/.* dev \([^ ]*\).*/\1/p')
+        ip link set dev "$$DEV" mtu 1400 && echo "MTU 1400 на $$DEV"
+        exec sleep 2147483647
+
 volumes:
   pgdata: {}
   caddy_data: {}
