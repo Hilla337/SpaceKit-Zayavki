@@ -144,6 +144,10 @@ jobs:
           for i in $(seq 1 60); do
             if curl -fsS -m 10 "https://$DOMAIN/health" 2>/dev/null | grep -qF "\"version\":\"$IMAGE\"" && curl -fsS -m 10 "https://$DOMAIN/health/db" >/dev/null 2>&1; then
               echo "Стенд работает: https://$DOMAIN"
+              # Для разбора сетевых проблем: что отдаёт стенд целиком (коды, размер, время; ничего секретного).
+              for u in "https://$DOMAIN/" "https://$DOMAIN/app.js" "http://$IP/" "http://$IP/app.js"; do
+                echo "  $u → $(curl -s -o /dev/null -m 20 -w '%{http_code}, %{size_download} байт, %{time_total} с' "$u" || echo 'нет ответа')"
+              done
               echo "### Стенд работает: https://$DOMAIN" >> "$GITHUB_STEP_SUMMARY"
               exit 0
             fi
