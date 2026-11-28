@@ -50,8 +50,14 @@ services:
     ports:
       - '80:80'
       - '443:443'
-    # Сертификат HTTPS выпускается сам (Let's Encrypt) на адрес вида 1-2-3-4.sslip.io.
-    command: caddy reverse-proxy --from __DOMAIN__ --to app:8080
+    # Сертификат HTTPS выпускается сам (Let's Encrypt): на 1-2-3-4.sslip.io и на свой домен, если он задан
+    # (переменная STAND_DOMAIN в GitHub). http://<IP> — запасной вход без HTTPS, чтобы проверить, не режет ли сеть домен.
+    command:
+      - sh
+      - -c
+      - |
+        printf '%s\n' '__SITES__ {' '	reverse_proxy app:8080' '}' 'http://__IP__ {' '	reverse_proxy app:8080' '}' > /etc/caddy/Caddyfile
+        exec caddy run --config /etc/caddy/Caddyfile --adapter caddyfile
     volumes:
       - caddy_data:/data
 

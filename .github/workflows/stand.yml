@@ -96,13 +96,18 @@ jobs:
           STAND_ADMIN_PASSWORD: ${{ secrets.STAND_ADMIN_PASSWORD }}
           STAND_ADMIN_NAME: ${{ secrets.STAND_ADMIN_NAME }}
           STAND_MS_TOKEN: ${{ secrets.STAND_MS_TOKEN }}
+          # Свой домен (необязательно): Settings → Secrets and variables → Actions → Variables → STAND_DOMAIN.
+          CUSTOM_DOMAIN: ${{ vars.STAND_DOMAIN }}
         run: |
           # Пароль базы и «перец» для кодов выводятся из одного секрета, чтобы не заводить их отдельно.
           DB_PASSWORD=$(printf '%s' "db:$STAND_SECRET" | sha256sum | cut -c1-40)
           AUTH_PEPPER=$(printf '%s' "pepper:$STAND_SECRET" | sha256sum | cut -c1-64)
           echo "::add-mask::$DB_PASSWORD"
           echo "::add-mask::$AUTH_PEPPER"
-          export STAND_IMAGE="$IMAGE" STAND_DOMAIN="$DOMAIN" STAND_APP_URL="https://$DOMAIN"
+          CUSTOM_DOMAIN=$(printf '%s' "$CUSTOM_DOMAIN" | tr -d '[:space:]' | tr 'A-Z' 'a-z')
+          if [ -n "$CUSTOM_DOMAIN" ] && ! printf '%s' "$CUSTOM_DOMAIN" | grep -Eq '^[a-z0-9.-]+\.[a-z]{2,}$'; then echo "::error::STAND_DOMAIN не похож на домен"; exit 1; fi
+          if [ -n "$CUSTOM_DOMAIN" ]; then SITES="$CUSTOM_DOMAIN, $DOMAIN"; APP_URL="https://$CUSTOM_DOMAIN"; echo "Свой домен: https://$CUSTOM_DOMAIN"; else SITES="$DOMAIN"; APP_URL="https://$DOMAIN"; fi
+          export STAND_IMAGE="$IMAGE" STAND_SITES="$SITES" STAND_IP="$IP" STAND_APP_URL="$APP_URL"
           export STAND_DB_PASSWORD="$DB_PASSWORD" STAND_AUTH_PEPPER="$AUTH_PEPPER"
           export STAND_DATABASE_URL="postgres://zayavki:$DB_PASSWORD@db:5432/zayavki"
           export STAND_ADMIN_NAME="${STAND_ADMIN_NAME:-Администратор}"
